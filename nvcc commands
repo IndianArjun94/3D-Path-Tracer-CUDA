@@ -1,0 +1,3 @@
+nvcc -ptx sample.cu -o sample.ptx
+
+nvcc -ptx sample.cu -std=c++17 -Xcompiler "-Zc:preprocessor" -o sample.ptx
