@@ -4,6 +4,8 @@ struct Material {
     float3 color;
     float metallic;
     float roughness;
+    float transmission;
+    float ior;
 };
 
 struct Sphere {

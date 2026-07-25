@@ -30,6 +30,7 @@ public class Window {
 
         windowHandle = glfwCreateWindow(WIDTH, HEIGHT, "Path Tracer", 0, 0);
 
+//        glfwSetWindowCloseCallback(windowHandle, w -> glfwSetWindowShouldClose(w, true));
         glfwMakeContextCurrent(windowHandle);
         GL.createCapabilities();
     }
