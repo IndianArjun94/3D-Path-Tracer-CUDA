@@ -34,14 +34,15 @@ public class SampleKernel extends Kernel {
 
         kernelParams = Pointer.to(
                 Pointer.to(pbo),
+                Pointer.to(sceneDataDevicePtrs[0]),
                 Pointer.to(new int[]{width}),
                 Pointer.to(new int[]{height}),
-                Pointer.to(sceneDataDevicePtrs[0]),
-                Pointer.to(new int[]{sceneDataSizes[0]}),
                 Pointer.to(sceneDataDevicePtrs[1]),
                 Pointer.to(new int[]{sceneDataSizes[1]}),
                 Pointer.to(sceneDataDevicePtrs[2]),
                 Pointer.to(new int[]{sceneDataSizes[2]}),
+                Pointer.to(sceneDataDevicePtrs[3]),
+                Pointer.to(new int[]{sceneDataSizes[3]}),
                 Pointer.to(new int[]{frame})
         );
 
