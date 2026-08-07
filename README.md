@@ -95,4 +95,20 @@
   </ul>
 </p>
 
+<h3>Ray pathways</h3>
+<p>
+  All rays start out as primary rays, but they change into different kinds as they hit and pass through different materials. In real life, when a ray hits a translucent surface, like tinted window glass, some will go down the diffuse path, some will go down the specular path, and the majority will travel through it. Path tracers cannot account for all three for each ray hit, because if we do, one ray every bounce turns into 3, then 9, then 27, and on. Instead, path tracers choose one path based on how much light is supposed to go through that path. For example, if that tinted glass has 75% of light going through it, we take that as a probability and take a 75% chance to send the ray through for transmission.
+
+  <h4>Specular</h4>
+  <p>
+    This is the reflection pathway. All materials, no matter how rough, will have some rays become specular rays and reflect on a hit. Two factors decide how much light is reflected: the material's metallic, and the angle the ray hit the object. Since objects that hit metals only go down the specular path (metals have no diffuse), we must compute the odds for metals and dielectrics (non metals) seperately. The second factor amplifies the first. Looking directly at a semi-reflective surface reflects some of the light, but if you look at a sharper angle, there is more of a reflection. Combining those gives us how much light reflects. For metals, you multiply that value by the material's color (looking at a gold ball, you will only see gold reflections). This color is multiplied into the <code>throughput</code>. <code>accumulatedColor</code> is not changed in specular. Also in the specular path, the reflected ray direction is altered by a random vector multiplied by <code>roughness</code>.
+  </p>
+
+  <h4>Diffuse</h4>
+  <p>
+    Diffuse is the simplest path. This is the default pathway when a ray rolls not to reflect or transmit through an object (if the object is translucent). No metals will ever go down this path. Diffuse happens when light enters the material just a little bit, going into the surface a little bit, then jumps out in a random direction. Metals have a property where the electrons in them absorb these rays that go into them, converting the energy into heat. The math behind diffuse is very simple. Take the albedo color of the object, then multiply it by <code>throughput</code> and the chance for diffuse and add it to <code>accumulatedColor</code>. You take a random direction vector for the new ray direction.
+  </p>
+  
+</p>
+
 </body>
