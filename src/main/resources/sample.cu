@@ -8,6 +8,7 @@
 
 __constant__ float epsilon = 0.0001f;
 __constant__ float roughness_scalar = 0.4f;
+__constant__ float e = 2.7182f;
 
 __device__ unsigned int hash(unsigned int seed) {
     unsigned int state = seed * 747796405u + 2891336453u;
@@ -232,12 +233,15 @@ __global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int 
 
     float3 rayPos = make_float3(0.0f, 0.0f, 0.0f);
 
+    bool inObject = false;
+
     // check if it hits any object
 
     for (int bounces = 0; bounces < 10; bounces++) {
 
         // finding the next object AND getting a new rayPos at the hit pos, rayDir, normal, and material ---------------------------------------
 
+        float previousIOR = 1.0f;
 
         float lowest_t = FLT_MAX;
         bool hit = false;
@@ -312,6 +316,18 @@ __global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int 
         seed = hash(seed);
         float specularRandom = randomFloat(seed);
 
+        if (inObject) {
+            float3 remainingLightFraction = make_float3(
+                __powf(material.color.x, lowest_t),
+                __powf(material.color.y, lowest_t),
+                __powf(material.color.z, lowest_t)
+            ); // lowest_t = distance
+
+            throughput *= remainingLightFraction;
+
+        }
+
+
         if (specularRandom < P_spec) { // specular
             // specular
 
@@ -341,31 +357,107 @@ __global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int 
                 rayDir = normalize(normalize(rayDir) + random);
             }
 
-        } else { // diffuse
-//             diffuse
+        } else { // diffuse OR transmission
+            float transmissionRandom = randomFloat(seed);
 
-            accumulated += localColor * throughput;
-            throughput *= (1.0f - F) * albedo / (1.0f - P_spec); /* F/P_spec is the amount of specular light, (1-F)/(1-P_spec) is the amount of diffuse light.
-            Since we are in the diffuse branch, F will always be on the gray scale (r, g, and b will be equal) because that is the case for all dielectrics */
+            if (transmissionRandom < material.transmission || inObject) { // transmission
+                // transmission
 
-            float rx = randomFloat(seed) * 2.0f - 1.0f;
-            float ry = randomFloat(seed) * 2.0f - 1.0f;
-            float rz = randomFloat(seed) * 2.0f - 1.0f;
+                /*
 
-            float3 random = make_float3(rx, ry, rz);
+                CODE:
+                "float3 sigma_a = make_float3(
+                    __logf(material.color.x),
+                    __logf(material.color.y),
+                    __logf(material.color.z)
+                );" // formula to get the the particle density per unit length
 
-            while (length(random) > 1) {
-                rx = randomFloat(seed) * 2.0f - 1.0f;
-                ry = randomFloat(seed) * 2.0f - 1.0f;
-                rz = randomFloat(seed) * 2.0f - 1.0f;
+                __logf is log base e
 
-                random = make_float3(rx, ry, rz);
+                CODE:
+                "float3 remainingLightFraction = __expf(sigma_a*distance);" // amount of light after transmission
+
+                __expf is e^x, x being the parameter
+
+                expanded out, the remainingLightFraction formula is just
+                e^(ln(color) * distance)
+
+                e is Euler's number
+                ln is log base e
+
+                they cancel each other out: e^ln(x) = x
+
+                e^(ln(color) * distance)
+                simplifies to:
+
+                color^distance
+
+                so
+
+                remainingLightFraction = color ^ distance
+
+                CODE:
+                "float3 remainingLightFraction = __powf(color, distance);"
+
+                */
+
+                if (!inObject) {
+
+//                    float ratioOfIor = material.ior / previousIOR;
+//
+//                    float3 D_normal = -dot(rayDir, normal) * normal;
+//                    float3 D_tangential = rayDir - D_normal;
+//
+//                    D_tangential *= ratioOfIor;
+//
+//                    if (length(D_tangential) <= 1.0f) {
+//                        // continue
+//                    } else {
+//                        // reflect
+//                    }
+
+
+
+                    previousIOR = material.ior;
+                    inObject = true;
+                    rayPos += normal * epsilon;
+                } else {
+                    previousIOR = 1.0f;
+                    inObject = false;
+                    rayPos += (normal*-1) * epsilon;
+                }
+
+
+
+
+            } else { // diffuse
+
+                // diffuse
+                accumulated += localColor * throughput;
+                throughput *= (1.0f - F) * albedo / (1.0f - P_spec); /* F/P_spec is the amount of specular light, (1-F)/(1-P_spec) is the amount of diffuse light.
+                Since we are in the diffuse branch, F will always be on the gray scale (r, g, and b will be equal) because that is the case for all dielectrics */
+
+                float rx = randomFloat(seed) * 2.0f - 1.0f;
+                float ry = randomFloat(seed) * 2.0f - 1.0f;
+                float rz = randomFloat(seed) * 2.0f - 1.0f;
+
+                float3 random = make_float3(rx, ry, rz);
+
+                while (length(random) > 1) {
+                    rx = randomFloat(seed) * 2.0f - 1.0f;
+                    ry = randomFloat(seed) * 2.0f - 1.0f;
+                    rz = randomFloat(seed) * 2.0f - 1.0f;
+
+                    random = make_float3(rx, ry, rz);
+                }
+
+                float3 dir = normalize(normal + normalize(random));
+                rayDir = dir;
+
+                rayPos += normal * epsilon;
             }
 
-            float3 dir = normalize(normal + normalize(random));
-            rayDir = dir;
 
-            rayPos += normal * epsilon;
 
         }
     }

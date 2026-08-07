@@ -221,8 +221,7 @@ public class GPUManager {
             while (!glfwWindowShouldClose(window.windowHandle) && frame <= 1024 * 16) {
 //                glfwPollEvents();
 
-//                if (frame % 25 == 0) System.out.println("Frame " + frame);
-                System.out.println("Frame " + frame);
+                if (frame % 25 == 0) System.out.println("Frame " + frame);
 
                 glClear(GL_COLOR_BUFFER_BIT); // Clear the canvas
 
