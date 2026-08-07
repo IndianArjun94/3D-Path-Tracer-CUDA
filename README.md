@@ -47,10 +47,19 @@
 </h2>
 
 <ul>
-  <li>NVCC commands are used to compile .cu files into .ptx files. I am not an expert at using them. If the included NVCC commands don't work, your best bet is to use AI to generate one for you.</li>
+  <li>NVCC commands are used to compile .cu files into .ptx files.</li>
   <li>Please do not hesitate to write all the comments you want. I especially encourage writing comments next to complicated math to help others understand your work.</li>
   <li>Refrain from copying large chunks of code from AI. Copying small chunks of code from AI is OK.</li>
 </ul>
 
-  
+<h2>
+  Getting Started
+</h2>
+
+<ol>
+  <li>Clone the repo <code>git clone https://github.com/IndianArjun94/3D-Path-Tracer-CUDA.git</code></li>
+  <li>Select a branch or create a new one <code>git checkout branch_name</code></li>
+  <li>Recompile all .cu files using nvcc</li>
+</ol>
+
 </body>
