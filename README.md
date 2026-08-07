@@ -38,7 +38,7 @@
   <li>Java Development Kit JDK, preferrably with IntelliJ IDEA</li>
   <li>NVIDIA Geforce RTX GPU, preferrably 30 series or later (30 and 50 series are supported, anything else try at your own risk)</li>
   <li>CUDA Toolkit to compile .cu code</li>
-  <li>C++ compiler (required by CUDA toolkit</li>
+  <li>C++ compiler (required by CUDA toolkit)</li>
 </ul>
 
 
