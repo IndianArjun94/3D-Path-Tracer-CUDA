@@ -37,7 +37,7 @@ A 3D path tracer with a Java frontend and CUDA backend. Simulates light in rever
 
 1. Clone the repo `git clone https://github.com/IndianArjun94/3D-Path-Tracer-CUDA.git`
 2. Select a branch or create a new one `git checkout branch_name`
-3. Recompile all .cu files using `nvcc`
+3. Recompile all .cu files using `nvcc` - the compiled .ptx files can be GPU specific and may not work on your hardware
 
 
 ## How it works
