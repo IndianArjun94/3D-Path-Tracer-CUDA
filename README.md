@@ -12,16 +12,16 @@ A 3D path tracer with a Java frontend and CUDA backend. Simulates light in rever
 ## Current features
 
 * Triangles and Spheres, ray intersection math for both individually
-* Specular and Diffuse pipelines
+* Specular, Diffuse, Transmission pipelines
 * CUDA Kernel backend for all the math
-* Materials with color, roughness, and metallic
+* Materials with color, roughness, metallic, ior, transmission
 * Color Point lights
 
 
 ## Prerequisites for contribution
 
 * Java Development Kit JDK, preferrably with IntelliJ IDEA
-* NVIDIA Geforce RTX GPU, preferrably 30 series or later (30 and 50 series are supported, anything else try at your own risk)
+* NVIDIA Geforce RTX gpu
 * CUDA Toolkit to compile .cu code
 * C++ compiler (required by CUDA toolkit)
 
@@ -35,9 +35,8 @@ A 3D path tracer with a Java frontend and CUDA backend. Simulates light in rever
 
 ## Getting started
 
-1. Clone the repo `git clone https://github.com/IndianArjun94/3D-Path-Tracer-CUDA.git`
-2. Select a branch or create a new one `git checkout branch_name`
-3. Recompile all .cu files using `nvcc` - the compiled .ptx files can be GPU specific and may not work on your hardware
+Check out `CONTRIBUTING.md`
+
 
 
 ## How it works
