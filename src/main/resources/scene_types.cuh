@@ -6,6 +6,7 @@ struct Material {
     float roughness;
     float transmission;
     float ior;
+    float density;
 };
 
 struct Sphere {

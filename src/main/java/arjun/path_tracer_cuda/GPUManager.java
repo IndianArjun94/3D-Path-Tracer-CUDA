@@ -33,6 +33,8 @@ public class GPUManager {
 
     public KernelManager kernelManager;
 
+    public int samples = 1024;
+
 
     //  Scene stuff ---------------------------------
     public ArrayList<Triangle> triangles = new ArrayList<>();
@@ -41,8 +43,7 @@ public class GPUManager {
 
     public CUdeviceptr[] sceneDataDevicePtrs;
     public int[] sceneDataSizes;
-
-//  ---------------------------------------------
+    //  ---------------------------------------------
 
     public GPUManager(Window window) {
         this.window = window;
@@ -51,9 +52,11 @@ public class GPUManager {
         initBuffers();
 
 //        PresetScenes.loadScene(1, triangles, spheres, pointLights, new Vec3(-2, -2, -5));
-        PresetScenes.loadScene(3, triangles, spheres, pointLights, new Vec3(0, 0, 0));
+        PresetScenes.loadScene(4, triangles, spheres, pointLights, new Vec3(0, 0, 0));
 
         sendSceneData(triangles.toArray(new Triangle[0]), spheres.toArray(new Sphere[0]), pointLights.toArray(new PointLight[0]));
+
+        samples = 8192;
 
         initKernels();
     }
@@ -96,8 +99,8 @@ public class GPUManager {
 
     private void sendSceneData(Triangle[] triangles, Sphere[] spheres, PointLight[] pointLights) {
 
-        float[] triangleData = new float[triangles.length * 16];
-        float[] sphereData = new float[spheres.length * 11];
+        float[] triangleData = new float[triangles.length * 17];
+        float[] sphereData = new float[spheres.length * 12];
         float[] pLightData = new float[pointLights.length * 7];
 
         int i = 0;
@@ -123,8 +126,9 @@ public class GPUManager {
             triangleData[i + 13] = triangle.material.roughness;
             triangleData[i + 14] = triangle.material.transmission;
             triangleData[i + 15] = triangle.material.ior;
+            triangleData[i + 16] = triangle.material.density;
 
-            i += 16;
+            i += 17;
         }
 
         i = 0;
@@ -144,8 +148,9 @@ public class GPUManager {
             sphereData[i + 8] = sphere.material.roughness;
             sphereData[i + 9] = sphere.material.transmission;
             sphereData[i + 10] = sphere.material.ior;
+            sphereData[i + 11] = sphere.material.density;
 
-            i += 11;
+            i += 12;
         }
 
         i = 0;
@@ -218,8 +223,8 @@ public class GPUManager {
         int frame = 1;
 
         try {
-            while (!glfwWindowShouldClose(window.windowHandle) && frame <= 16*1024) {
-//                glfwPollEvents();
+            while (!glfwWindowShouldClose(window.windowHandle) && frame <= samples) {
+                glfwPollEvents();
 
                 if (frame % 25 == 0) System.out.println("Frame " + frame);
 
@@ -271,7 +276,7 @@ public class GPUManager {
         }
 
         while (!glfwWindowShouldClose(window.windowHandle)) {
-
+            glfwPollEvents();
         }
 
         window.cleanup();

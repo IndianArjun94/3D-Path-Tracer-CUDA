@@ -235,10 +235,11 @@ __global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int 
 
     bool inObject = false;
     float previousIOR = 1.0f;
+    Material insideMaterial;
 
     // check if it hits any object
 
-    for (int bounces = 0; bounces < 10; bounces++) {
+    for (int bounces = 0; bounces < 30; bounces++) {
 
         // finding the next object AND getting a new rayPos at the hit pos, rayDir, normal, and material ---------------------------------------
 
@@ -316,12 +317,12 @@ __global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int 
         seed = hash(seed);
         float specularRandom = randomFloat(seed);
 
-        if (inObject) {
+        if (inObject) { // transmission color math
             float3 remainingLightFraction = make_float3(
-                __powf(material.color.x, lowest_t),
-                __powf(material.color.y, lowest_t),
-                __powf(material.color.z, lowest_t)
-            ); // lowest_t = distance
+                __powf(fmaxf(insideMaterial.color.x, epsilon), lowest_t * insideMaterial.density),
+                __powf(fmaxf(insideMaterial.color.y, epsilon), lowest_t * insideMaterial.density),
+                __powf(fmaxf(insideMaterial.color.z, epsilon), lowest_t * insideMaterial.density)
+            );
 
             throughput *= remainingLightFraction;
 
@@ -484,6 +485,7 @@ __global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int 
                         } else { // entering
                             inObject = true;
                             previousIOR = material.ior;
+                            insideMaterial = material;
                         }
 
                         throughput *= (1-F)/(1-P_spec);

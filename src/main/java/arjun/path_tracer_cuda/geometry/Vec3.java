@@ -18,11 +18,7 @@ public class Vec3 { // 3 floats
     }
 
     public Vec3 add(Vec3 vec3) {
-        this.x += vec3.x;
-        this.y += vec3.y;
-        this.z += vec3.z;
-
-        return this;
+        return new Vec3(this.x + vec3.x, this.y + vec3.y, this.z + vec3.z);
     }
 
     public Vec3 subtract(Vec3 vec3) {

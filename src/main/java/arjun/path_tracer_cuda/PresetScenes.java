@@ -16,43 +16,42 @@ public class PresetScenes {
 
             Material matCenterSphere = new Material(new Vec3(255, 255, 255), 1f, 0.1f, 0f);
             Material matOrangeSphere = new Material(new Vec3(255, 165, 0), 1f, 0.8f, 0);
-            Material matBlueSphere = new Material(new Vec3(255, 255, 255), 0.0f, 0.0f, 0.9f, 1.3f);
+            Material matBlueSphere = new Material(new Vec3(0, 225, 255), 0.0f, 0.0f, 0.9f, 1.3f, 0.1f);
             Material matVioletSphere = new Material(new Vec3(238, 130, 238), 1f, 0.4f, 0);
             Material matYellowSphere = new Material(new Vec3(255, 255, 0), 1f, 0.2f, 0);
 
-// --- PLANES (Converted to Triangles) ---
+            // --- PLANES (Converted to Triangles) ---
 
-// Floor
+            // Floor
             triangles.add(new Triangle(new Vec3(-4.5f, -3.0f, 0.0f).add(positionOffset), new Vec3(4.5f, -3.0f, 0.0f).add(positionOffset), new Vec3(4.5f, -3.0f, -7.0f).add(positionOffset), matFloor));
             triangles.add(new Triangle(new Vec3(-4.5f, -3.0f, 0.0f).add(positionOffset), new Vec3(4.5f, -3.0f, -7.0f).add(positionOffset), new Vec3(-4.5f, -3.0f, -7.0f).add(positionOffset), matFloor));
 
-// Back Wall
+            // Back Wall
             triangles.add(new Triangle(new Vec3(4.5f, -3.0f, -7.0f).add(positionOffset), new Vec3(4.5f, 4.0f, -7.0f).add(positionOffset), new Vec3(-4.5f, 4.0f, -7.0f).add(positionOffset), matBackWall));
             triangles.add(new Triangle(new Vec3(4.5f, -3.0f, -7.0f).add(positionOffset), new Vec3(-4.5f, 4.0f, -7.0f).add(positionOffset), new Vec3(-4.5f, -3.0f, -7.0f).add(positionOffset), matBackWall));
 
-// Left Wall
+            // Left Wall
             triangles.add(new Triangle(new Vec3(-4.5f, -3.0f, -7.0f).add(positionOffset), new Vec3(-4.5f, 4.0f, -7.0f).add(positionOffset), new Vec3(-4.5f, 4.0f, 0.0f).add(positionOffset), matLeftWall));
             triangles.add(new Triangle(new Vec3(-4.5f, -3.0f, -7.0f).add(positionOffset), new Vec3(-4.5f, 4.0f, 0.0f).add(positionOffset), new Vec3(-4.5f, -3.0f, 0.0f).add(positionOffset), matLeftWall));
 
-// Right Wall
+            // Right Wall
             triangles.add(new Triangle(new Vec3(4.5f, -3.0f, 0.0f).add(positionOffset), new Vec3(4.5f, 4.0f, 0.0f).add(positionOffset), new Vec3(4.5f, 4.0f, -7.0f).add(positionOffset), matRightWall));
             triangles.add(new Triangle(new Vec3(4.5f, -3.0f, 0.0f).add(positionOffset), new Vec3(4.5f, 4.0f, -7.0f).add(positionOffset), new Vec3(4.5f, -3.0f, -7.0f).add(positionOffset), matRightWall));
 
-// Ceiling
+            // Ceiling
             triangles.add(new Triangle(new Vec3(-4.5f, 4.0f, -7.0f).add(positionOffset), new Vec3(4.5f, 4.0f, -7.0f).add(positionOffset), new Vec3(4.5f, 4.0f, 0.0f).add(positionOffset), matCeiling));
             triangles.add(new Triangle(new Vec3(-4.5f, 4.0f, -7.0f).add(positionOffset), new Vec3(4.5f, 4.0f, 0.0f).add(positionOffset), new Vec3(-4.5f, 4.0f, 0.0f).add(positionOffset), matCeiling));
 
 
-// --- SPHERES ---
+            // --- SPHERES ---
             spheres.add(new Sphere(new Vec3(0.0f, -1.0f, -4.2f).add(positionOffset), 1.1f, matCenterSphere));
             spheres.add(new Sphere(new Vec3(-2.0f, -2.2f, -3.5f).add(positionOffset), 0.5f, matOrangeSphere)); // Glossy Orange (Left)
-//            spheres.add(new Sphere(new Vec3(2.0f, -1.4f, -3.5f).add(positionOffset), 1.05f, matBlueSphere));    // Glossy Deep Blue (Right)
-            spheres.add(new Sphere(new Vec3(0f, 0f, 2f).add(positionOffset), 1.05f, matBlueSphere));    // Glossy Deep Blue (Right)
+            spheres.add(new Sphere(new Vec3(2.2f, -1.4f, -3.5f).add(positionOffset), 1.05f, matBlueSphere));    // Glossy Deep Blue (Right)
             spheres.add(new Sphere(new Vec3(-1.8f, 1.3f, -4.8f).add(positionOffset), 0.7f, matVioletSphere));  // Violet (Upper Left)
             spheres.add(new Sphere(new Vec3(1.8f, 1.3f, -4.8f).add(positionOffset), 0.7f, matYellowSphere));   // Yellow (Upper Right)
 
 
-// --- LIGHTS ---
+            // --- LIGHTS ---
             pointLights.add(new PointLight(new Vec3(0.0f, 3.8f, -4.5f).add(positionOffset), new Vec3(255, 255, 255), 20));
             pointLights.add(new PointLight(new Vec3(3.0f, 3.8f, -3.0f).add(positionOffset), new Vec3(255, 255, 255), 50));
             pointLights.add(new PointLight(new Vec3(-3.0f, 3.8f, -3.0f).add(positionOffset), new Vec3(255, 255, 255), 20));
@@ -65,9 +64,9 @@ public class PresetScenes {
             Material matRight   = new Material(new Vec3( 70, 200,  95), 0f, 0.50f, 0f); // green
 
             // --- OBJECT MATERIALS ---
-            Material clearGlass  = new Material(new Vec3(255, 255, 255), 0f, 0.00f, 1.0f, 1.5f); // no tint (color^d = 1)
-            Material amberGlass  = new Material(new Vec3(255, 190,  95), 0f, 0.00f, 1.0f, 1.5f); // absorbs blue/green -> amber
-            Material blueGlass   = new Material(new Vec3(130, 175, 255), 0f, 0.00f, 1.0f, 1.5f); // absorbs red -> blue
+            Material clearGlass  = new Material(new Vec3(255, 255, 255), 0f, 0.00f, 1.0f, 1.5f, 1.0f); // no tint (color^d = 1)
+            Material amberGlass  = new Material(new Vec3(255, 190,  95), 0f, 0.00f, 1.0f, 1.5f, 1.0f); // absorbs blue/green -> amber
+            Material blueGlass   = new Material(new Vec3(130, 175, 255), 0f, 0.00f, 1.0f, 1.5f, 1.0f); // absorbs red -> blue
             Material gold        = new Material(new Vec3(255, 215, 120), 1f, 0.05f, 0f);         // near-mirror gold
             Material chrome      = new Material(new Vec3(250, 250, 250), 1f, 0.00f, 0f);         // perfect mirror
             Material copperRough = new Material(new Vec3(240, 150, 110), 1f, 0.20f, 0f);         // brushed copper
@@ -113,10 +112,10 @@ public class PresetScenes {
             Material matRight   = new Material(new Vec3( 70, 195,  95), 0f, 0.50f, 0f);
 
             // --- OBJECT MATERIALS ---
-            Material clearGlass = new Material(new Vec3(255, 255, 255), 0f, 0f, 1.0f, 1.5f);
-            Material amberGlass = new Material(new Vec3(255, 200, 110), 0f, 0f, 1.0f, 1.5f);
-            Material blueGlass  = new Material(new Vec3(140, 180, 255), 0f, 0f, 1.0f, 1.5f);
-            Material roseGlass  = new Material(new Vec3(255, 150, 190), 0f, 0f, 1.0f, 1.3f);
+            Material clearGlass = new Material(new Vec3(255, 255, 255), 0f, 0f, 1.0f, 1.5f, 1.0f);
+            Material amberGlass = new Material(new Vec3(255, 200, 110), 0f, 0f, 1.0f, 1.5f, 1.0f);
+            Material blueGlass  = new Material(new Vec3(140, 180, 255), 0f, 0f, 1.0f, 1.5f, 1.0f);
+            Material roseGlass  = new Material(new Vec3(255, 150, 190), 0f, 0f, 1.0f, 1.3f, 1.0f);
             Material gold       = new Material(new Vec3(255, 215, 120), 1f, 0.05f, 0f);
             Material chrome     = new Material(new Vec3(250, 250, 250), 1f, 0.00f, 0f);
             Material copper     = new Material(new Vec3(240, 150, 110), 1f, 0.15f, 0f);
@@ -174,6 +173,81 @@ public class PresetScenes {
             pointLights.add(new PointLight(v( 0.0f, 4.8f, -5.0f).add(positionOffset), new Vec3(255, 255, 255), 45));
             pointLights.add(new PointLight(v( 4.0f, 4.8f, -2.5f).add(positionOffset), new Vec3(255, 240, 220), 45));
             pointLights.add(new PointLight(v(-4.0f, 4.8f, -2.5f).add(positionOffset), new Vec3(220, 235, 255), 45));
+        } else if (scene == 4) {
+            // --- ROOM MATERIALS (opaque) ---
+            Material matFloor   = new Material(new Vec3(210, 210, 210), 1f, 0.1f, 0f);
+            Material matCeiling = new Material(new Vec3(200, 200, 200), 0f, 0.25f, 0f);
+            Material matBack    = new Material(new Vec3(185, 185, 185), 1f, 0.3f, 0f);
+            Material matLeft    = new Material(new Vec3(210,  70,  70), 0f, 0.50f, 0f);
+            Material matRight   = new Material(new Vec3( 70, 195,  95), 0f, 0.50f, 0f);
+
+            // --- GLASS MATERIALS (transmission = 1, tuned density per object size) ---
+            // args: color, metallic, roughness, transmission, ior, density
+            Material glassClear = new Material(new Vec3(255, 255, 255), 0f, 0f, 1.0f, 1.5f, 1.0f);
+            Material glassAmber = new Material(new Vec3(255, 200, 110), 0f, 0f, 1.0f, 1.5f, 1.5f);
+            Material glassBlue  = new Material(new Vec3(130, 180, 255), 0f, 0f, 1.0f, 1.5f, 1.5f);
+            Material glassRose  = new Material(new Vec3(255, 150, 190), 0f, 0f, 1.0f, 1.4f, 1.5f);
+            Material glassTeal  = new Material(new Vec3(120, 240, 220), 0f, 0f, 1.0f, 1.5f, 1.5f);
+            Material glassLime  = new Material(new Vec3(190, 240, 120), 0f, 0f, 1.0f, 1.45f, 1.5f);
+            Material glassViolet= new Material(new Vec3(200, 150, 255), 0f, 0f, 1.0f, 1.5f, 1.5f);
+
+            // higher density for the small glass triangle boxes (short chords need it to show tint)
+            Material glassBoxAmber = new Material(new Vec3(255, 195, 110), 0f, 0f, 1.0f, 1.5f, 2.5f);
+            Material glassBoxBlue  = new Material(new Vec3(130, 180, 255), 0f, 0f, 1.0f, 1.5f, 2.5f);
+            Material glassBoxGreen = new Material(new Vec3(150, 240, 150), 0f, 0f, 1.0f, 1.5f, 2.5f);
+
+            // a couple of opaque accents so there's something solid to see through the glass
+            Material gold   = new Material(new Vec3(255, 215, 120), 1f, 0.05f, 0f);
+            Material chrome = new Material(new Vec3(250, 250, 250), 1f, 0.00f, 0f);
+            Material matteMag = new Material(new Vec3(225, 90, 200), 0f, 0.85f, 0f);
+
+            // --- ROOM ---
+            addQuad(triangles, v(-6f,-3f,1f),  v(6f,-3f,1f),  v(6f,-3f,-11f),  v(-6f,-3f,-11f),  matFloor,   positionOffset);
+            addQuad(triangles, v(-6f, 5f,-11f), v(6f,5f,-11f), v(6f,5f,1f),    v(-6f,5f,1f),     matCeiling, positionOffset);
+            addQuad(triangles, v(6f,-3f,-11f), v(6f,5f,-11f), v(-6f,5f,-11f),  v(-6f,-3f,-11f),  matBack,    positionOffset);
+            addQuad(triangles, v(-6f,-3f,-11f), v(-6f,5f,-11f), v(-6f,5f,1f),  v(-6f,-3f,1f),    matLeft,    positionOffset);
+            addQuad(triangles, v(6f,-3f,1f),  v(6f,5f,1f),   v(6f,5f,-11f),   v(6f,-3f,-11f),   matRight,   positionOffset);
+
+            // --- TRANSLUCENT TRIANGLE STRUCTURES (all CLOSED boxes = 2 surfaces per ray) ---
+            // tall glass slab pillars (thin but closed -> ray still enters+exits)
+            addBox(triangles, v(-5.3f,-3f,-9.5f), v(-4.5f,-0.2f,-8.7f), glassBoxAmber, positionOffset);
+            addBox(triangles, v( 4.5f,-3f,-9.5f), v( 5.3f,-0.2f,-8.7f), glassBoxBlue,  positionOffset);
+            // glass cubes on the floor
+            addBox(triangles, v(-2.7f,-3f,-7.0f), v(-1.7f,-2.0f,-6.0f), glassBoxGreen, positionOffset);
+            addBox(triangles, v( 1.7f,-3f,-7.0f), v( 2.7f,-2.0f,-6.0f), glassBoxAmber, positionOffset);
+            // a closed glass triangular prism (still 2 surfaces along any ray)
+            addPrism(triangles, v(-0.9f,-3f,-8.2f), v(0.9f,-3f,-8.2f), 1.6f, 1.4f, glassBoxBlue, positionOffset);
+
+            // --- OPAQUE ACCENTS behind/among the glass (things to refract) ---
+            addBox(triangles, v(-0.6f,-3f,-9.8f), v(0.6f,-1.6f,-9.0f), matteMag, positionOffset);
+            spheres.add(new Sphere(v(-4.6f,-2.55f,-6.0f).add(positionOffset), 0.45f, gold));
+            spheres.add(new Sphere(v( 4.6f,-2.55f,-6.0f).add(positionOffset), 0.45f, chrome));
+
+            // --- MANY TRANSLUCENT SPHERES ---
+            // front showcase row (small, see-through)
+            spheres.add(new Sphere(v(-2.2f,-2.45f,-2.2f).add(positionOffset), 0.55f, glassAmber));
+            spheres.add(new Sphere(v(-0.75f,-2.45f,-1.7f).add(positionOffset), 0.55f, glassBlue));
+            spheres.add(new Sphere(v( 0.75f,-2.45f,-1.7f).add(positionOffset), 0.55f, glassRose));
+            spheres.add(new Sphere(v( 2.2f,-2.45f,-2.2f).add(positionOffset), 0.55f, glassTeal));
+
+            // a big clear centerpiece (lens effect on everything behind it)
+            spheres.add(new Sphere(v( 0.0f,-1.3f,-3.6f).add(positionOffset), 1.35f, glassClear));
+
+            // mid ring of mixed-tint glass
+            spheres.add(new Sphere(v(-3.3f,-2.35f,-3.6f).add(positionOffset), 0.65f, glassLime));
+            spheres.add(new Sphere(v( 3.3f,-2.35f,-3.6f).add(positionOffset), 0.65f, glassViolet));
+            spheres.add(new Sphere(v(-2.0f,-2.55f,-4.6f).add(positionOffset), 0.45f, glassBlue));
+            spheres.add(new Sphere(v( 2.0f,-2.55f,-4.6f).add(positionOffset), 0.45f, glassAmber));
+
+            // floating glass orbs (glass-behind-glass through the big lens)
+            spheres.add(new Sphere(v(-1.4f, 1.1f,-6.2f).add(positionOffset), 0.6f, glassRose));
+            spheres.add(new Sphere(v( 1.4f, 1.2f,-6.2f).add(positionOffset), 0.6f, glassTeal));
+            spheres.add(new Sphere(v( 0.0f, 2.2f,-7.0f).add(positionOffset), 0.5f, glassClear));
+
+            // --- LIGHTS ---
+            pointLights.add(new PointLight(v( 0.0f, 4.8f, -5.0f).add(positionOffset), new Vec3(255, 255, 255), 65));
+            pointLights.add(new PointLight(v( 4.0f, 4.8f, -2.5f).add(positionOffset), new Vec3(255, 245, 225), 35));
+            pointLights.add(new PointLight(v(-4.0f, 4.8f, -2.5f).add(positionOffset), new Vec3(225, 240, 255), 35));
         }
     }
 
@@ -233,5 +307,22 @@ public class PresetScenes {
             float y1 = y0 + stepH;
             addBox(triangles, v(base.x - half, y0, base.z - half), v(base.x + half, y1, base.z + half), m, off);
         }
+    }
+
+    // closed triangular prism: a base edge from p0 to p1 along x, extruded in +z by 'depth', peaked at height 'h'.
+    // 2 triangular caps + 3 rectangular sides = 8 triangles, fully closed.
+    private static void addPrism(ArrayList<Triangle> triangles, Vec3 p0, Vec3 p1, float h, float depth, Material m, Vec3 off) {
+        float apexX = (p0.x + p1.x) * 0.5f;
+        // front face (z = p0.z)
+        Vec3 fa = v(p0.x, p0.y, p0.z), fb = v(p1.x, p1.y, p0.z), fap = v(apexX, p0.y + h, p0.z);
+        // back face (z = p0.z + depth)
+        Vec3 ba = v(p0.x, p0.y, p0.z + depth), bb = v(p1.x, p1.y, p0.z + depth), bap = v(apexX, p0.y + h, p0.z + depth);
+        // caps
+        triangles.add(new Triangle(fa.add(off), fb.add(off), fap.add(off), m));
+        triangles.add(new Triangle(ba.add(off), bb.add(off), bap.add(off), m));
+        // three rectangular sides (as quads)
+        addQuad(triangles, fa, fb, bb, ba, m, off);   // bottom
+        addQuad(triangles, fa, fap, bap, ba, m, off); // left slope
+        addQuad(triangles, fb, fap, bap, bb, m, off); // right slope
     }
 }
