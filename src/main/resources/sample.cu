@@ -234,6 +234,7 @@ __global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int 
     float3 rayPos = make_float3(0.0f, 0.0f, 0.0f);
 
     bool inObject = false;
+    float previousIOR = 1.0f;
 
     // check if it hits any object
 
@@ -241,7 +242,6 @@ __global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int 
 
         // finding the next object AND getting a new rayPos at the hit pos, rayDir, normal, and material ---------------------------------------
 
-        float previousIOR = 1.0f;
 
         float lowest_t = FLT_MAX;
         bool hit = false;
@@ -323,7 +323,7 @@ __global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int 
                 __powf(material.color.z, lowest_t)
             ); // lowest_t = distance
 
-            throughput *= remainingLightFraction;
+            throughput *= remainingLightFraction * (1.0f - F) * albedo / (1.0f - P_spec);;
 
         }
 
@@ -360,7 +360,7 @@ __global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int 
         } else { // diffuse OR transmission
             float transmissionRandom = randomFloat(seed);
 
-            if (transmissionRandom < material.transmission || inObject) { // transmission
+            if (transmissionRandom < material.transmission) { // transmission
                 // transmission
 
                 /*
@@ -401,32 +401,96 @@ __global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int 
 
                 */
 
-                if (!inObject) {
 
-//                    float ratioOfIor = material.ior / previousIOR;
-//
-//                    float3 D_normal = -dot(rayDir, normal) * normal;
-//                    float3 D_tangential = rayDir - D_normal;
-//
-//                    D_tangential *= ratioOfIor;
-//
-//                    if (length(D_tangential) <= 1.0f) {
-//                        // continue
-//                    } else {
-//                        // reflect
-//                    }
+                    float ratioOfIor = previousIOR / material.ior;
 
+                    float cosI = -dot(rayDir, normal); // -(N*D)    the length of the normal part of the rayDir (if rayDir faces half way between the normal and parallel to the normal, this would be cos(45 deg) = around 0.707)
 
+                    /*
 
-                    previousIOR = material.ior;
-                    inObject = true;
-                    rayPos += normal * epsilon;
-                } else {
-                    previousIOR = 1.0f;
-                    inObject = false;
-                    rayPos += (normal*-1) * epsilon;
-                }
+                    tangential means perpendicular to the normal, parallel to the surface (normal is perpendicular to the surface)
 
+                    next, we need the tangential length of rayDir. we already have the normal part.
+                    I = rayDir, I_tangentialLength^2 + I_normalLength^2 = 1.0^2
+
+                    think of it like a triangle:
+                     - the hypotenuse is the rayDir (I) which is normalized to 1.0.
+                     - one leg is I_normalLength
+                     - the other leg is I_tangentialLength, perpendicular to the normal, and exactly what we need.
+
+                    we just use pythagorean theorem for this
+
+                    a^2 + b^2 = c^2
+
+                    but remember, we also have to scale the tangential component length by the ratioOfIor
+                    this is the actual refraction part
+
+                    I_tangentialLength^2 + I_normalLength^2 = 1.0^2
+                    I_tangentialLength^2 = 1^2 - I_normalLength^2
+                    I_tangentialLength = sqrt(1 - I_normalLength^2)
+
+                    to implement the ratioOfIor scale, we replace that last line with:
+
+                    I_tangentialLength^2 = ratioOfIor^2 * (1 - I_normalLength^2)
+
+                    */
+
+                    float sinISquared = (ratioOfIor*ratioOfIor) * (1-(cosI*cosI)); // sinI is just I_tangentialLength
+
+                    /*
+
+                    since we scaled the I_tangentialLength by ratioOfIor without also modifying I_normalLength,
+                    our I_normalLength will no longer work, and the hypotenuse will no longer be 1.0^2 with the pythagorean theorem
+
+                    I_tangentialLength^2 + I_normalLength^2 != 1.0^2
+
+                    the solution is to recompute I_normalLength using the pythagorean theorem
+
+                    k = 1^2 - tangentialLength^2
+
+                    k is the new I_normalLength^2
+                    k also helps us check one thing:
+
+                    scaling I_tangentialLength^2 by ratioOfIor^2 adjusts the tangential for refraction, but in extreme cases,
+                    ratioOfIor could have pushed I_tangentialLength^2 a bit too far, above 1, leaving no room for I_normalLength^2,
+                    since  I_tangentialLength^2 + I_normalLength^2 = 1.0^2. we must check for this. k is just 1 - tangentialLength^2 so we reverse the check:
+
+                    if k >= 0, refraction is valid, continue.
+                    else, TIR
+
+                    TIR stands for total internal reflection. basically, the most a ray can refract is 90 degrees, where there is no I_normalLength.
+                    this is ok, but going any further than 90 degrees (I_tangentialLength^2 > 1.0) and you treat it as a reflection.
+                    TIR only happens when going from a dense medium (high ior) to a less dense medium (lower ior).
+                    treat a TIR as a regular specular.
+
+                    */
+
+                    float k = 1.0f - sinISquared;
+
+                    if (k >= 0) { // valid refraction, room for both I_normal and I_tangential
+                        // these below are NOT LENGTHS, they are the actual tangential and normal direction vectors of rayDir
+                        float3 I_normal = normal * -cosI; // negative because it made it negative in cosI, and we have to reverse it to get the direction the ray points opposite to the normal (pointing towards it)
+                        float3 I_tangential = normalize(rayDir - I_normal); // subtract the normal component from the total to get the tangential
+
+                        float3 refractedNormal = normal * sqrtf(k) * -1;
+                        float3 refractedTangential = I_tangential * sqrtf(sinISquared);
+
+                        rayDir = refractedNormal + refractedTangential;
+                        rayPos += (normal*-1) * epsilon;
+
+                        if (inObject) { // leaving
+                            inObject = false;
+                            previousIOR = material.ior;
+                        } else { // entering
+                            inObject = true;
+                        }
+
+                    } else {
+                        throughput *= F; // color math for specular
+
+                        rayDir = normalize(rayDir - normal*2*dot(rayDir, normal));
+                        rayPos += normal * epsilon;
+                    }
 
 
 

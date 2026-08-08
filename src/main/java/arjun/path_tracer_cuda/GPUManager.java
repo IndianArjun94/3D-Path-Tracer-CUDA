@@ -51,7 +51,7 @@ public class GPUManager {
         initBuffers();
 
 //        PresetScenes.loadScene(1, triangles, spheres, pointLights, new Vec3(-2, -2, -5));
-        PresetScenes.loadScene(1, triangles, spheres, pointLights, new Vec3(0, 0, 0));
+        PresetScenes.loadScene(3, triangles, spheres, pointLights, new Vec3(0, 0, 0));
 
         sendSceneData(triangles.toArray(new Triangle[0]), spheres.toArray(new Sphere[0]), pointLights.toArray(new PointLight[0]));
 
@@ -218,7 +218,7 @@ public class GPUManager {
         int frame = 1;
 
         try {
-            while (!glfwWindowShouldClose(window.windowHandle) && frame <= 1024 * 16) {
+            while (!glfwWindowShouldClose(window.windowHandle) && frame <= 16*1024) {
 //                glfwPollEvents();
 
                 if (frame % 25 == 0) System.out.println("Frame " + frame);
@@ -268,6 +268,10 @@ public class GPUManager {
             }
         } catch (Exception e) {
             e.printStackTrace();
+        }
+
+        while (!glfwWindowShouldClose(window.windowHandle)) {
+
         }
 
         window.cleanup();

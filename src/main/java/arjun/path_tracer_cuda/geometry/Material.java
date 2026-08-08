@@ -11,4 +11,12 @@ public class Material { // 7 floats
         this.transmission = transmission;
         this.ior = 1.5f;
     }
+
+    public Material(Vec3 color, float metallic, float roughness, float transmission, float IOR) {
+        this.color = color;
+        this.metallic = metallic;
+        this.roughness = roughness;
+        this.transmission = transmission;
+        this.ior = IOR;
+    }
 }
