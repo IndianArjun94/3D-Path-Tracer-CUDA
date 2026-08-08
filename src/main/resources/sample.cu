@@ -323,7 +323,7 @@ __global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int 
                 __powf(material.color.z, lowest_t)
             ); // lowest_t = distance
 
-            throughput *= remainingLightFraction * (1.0f - F) * albedo / (1.0f - P_spec);;
+            throughput *= remainingLightFraction;
 
         }
 
@@ -485,6 +485,8 @@ __global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int 
                             inObject = true;
                             previousIOR = material.ior;
                         }
+
+                        throughput *= (1-F)/(1-P_spec);
 
                     } else {
                         throughput *= F; // color math for specular
