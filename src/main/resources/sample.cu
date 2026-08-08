@@ -480,9 +480,10 @@ __global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int 
 
                         if (inObject) { // leaving
                             inObject = false;
-                            previousIOR = material.ior;
+                            previousIOR = 1.0f;
                         } else { // entering
                             inObject = true;
+                            previousIOR = material.ior;
                         }
 
                     } else {
