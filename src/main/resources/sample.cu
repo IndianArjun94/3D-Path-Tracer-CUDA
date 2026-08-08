@@ -370,7 +370,7 @@ __global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int 
                     __logf(material.color.x),
                     __logf(material.color.y),
                     __logf(material.color.z)
-                );" // formula to get the the particle density per unit length
+                ) * material.density;" // formula to get the the particle density per unit length
 
                 __logf is log base e
 
@@ -380,24 +380,24 @@ __global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int 
                 __expf is e^x, x being the parameter
 
                 expanded out, the remainingLightFraction formula is just
-                e^(ln(color) * distance)
+                e^(ln(color) * distance * density)
 
                 e is Euler's number
                 ln is log base e
 
                 they cancel each other out: e^ln(x) = x
 
-                e^(ln(color) * distance)
+                e^(ln(color) * distance * density)
                 simplifies to:
 
-                color^distance
+                color^(distance*density)
 
                 so
 
-                remainingLightFraction = color ^ distance
+                remainingLightFraction = color ^ (distance*density)
 
                 CODE:
-                "float3 remainingLightFraction = __powf(color, distance);"
+                "float3 remainingLightFraction = __powf(color, distance*density);"
 
                 */
 
