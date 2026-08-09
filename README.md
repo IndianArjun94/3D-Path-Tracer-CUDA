@@ -3,9 +3,9 @@
 
 # Path Tracer
 
+<img width="2559" height="1439" alt="Screenshot 2026-08-08 125450" src="https://github.com/user-attachments/assets/2f5fc6c5-449a-4482-808d-05bd1024e38f" />
 
-<img width="1568" height="908" alt="image" src="https://github.com/user-attachments/assets/1c13d91d-dd64-402d-83a2-d284e47ef15b" />
-  
+
 A 3D path tracer with a Java frontend and CUDA backend. Simulates light in reverse, starting from the camera. NOT real-time; a single image takes thousands of samples to fully render, similar to how blender does it.
 
 
