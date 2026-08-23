@@ -129,6 +129,8 @@ __device__ cuda::std::pair<float, Sphere> getLowestTravelSpheres(float3 rayPos, 
     }
 }
 
+// Compute the local shading contribution (diffuse/specular/ambient) for the hit point.
+// Inputs are typically position, normal, material, and light parameters; output is RGB.
 __device__ float3 getLocalColor(float3 rayPos, float3 rayDir, Material material, float3 normal, Triangle* triangles, int numTriangles, Sphere* spheres, int numSpheres, PointLight* pointLights, int numPointLights, unsigned int& seed) {
     float3 totalLight = make_float3(0.0f, 0.0f, 0.0f);
 

@@ -1,0 +1,7 @@
+fix: Populate getLocalColor with comments
+
+- src\main\resources\sample.cu: comments on getLocalColor
+
+Fixes #2
+
+Signed-off-by: Vedant Madane <6527493+VedantMadane@users.noreply.github.com>
