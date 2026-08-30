@@ -1,6 +1,8 @@
 package arjun.path_tracer_cuda;
 
 import arjun.path_tracer_cuda.geometry.*;
+import arjun.path_tracer_cuda.geometry.BVH.AABB;
+import arjun.path_tracer_cuda.geometry.BVH.BVHNode;
 import arjun.path_tracer_cuda.kernel.Kernel;
 import arjun.path_tracer_cuda.kernel.KernelManager;
 import arjun.path_tracer_cuda.kernel.SampleKernel;
@@ -9,8 +11,11 @@ import jcuda.Sizeof;
 import jcuda.driver.*;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.ArrayList;
-import java.util.List;
+import java.util.Arrays;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import static org.lwjgl.glfw.GLFW.*;
 import static org.lwjgl.glfw.GLFW.glfwPollEvents;
@@ -22,6 +27,8 @@ import static org.lwjgl.opengl.GL21.GL_PIXEL_UNPACK_BUFFER;
 public class GPUManager {
 
     private Window window;
+
+    public static GPUManager instance;
 
     public int textureId;
     public int pboId;
@@ -41,26 +48,74 @@ public class GPUManager {
     public ArrayList<Sphere> spheres = new ArrayList<>();
     public ArrayList<PointLight> pointLights = new ArrayList<>();
 
+    public ArrayList<SceneObject> objects = new ArrayList<>();
+
     public CUdeviceptr[] sceneDataDevicePtrs;
     public int[] sceneDataSizes;
+
+    public AABB[] primBounds; // aabb for each primitive (triangle or sphere)
+    public Vec3[] primCentroids; // centroid (center) of each primitive
+
+    public int[] primCount; // the ids for each primitive (points to GPUManager objects arraylist), to be shuffled later
+
+    public float[] minBounds;
+    public float[] maxBounds;
+    public int[] primCounts; // always the prim counts
+    public int[] idx; // for leafs: the first prim index. for interiors: index of right child
     //  ---------------------------------------------
 
     public GPUManager(Window window) {
         this.window = window;
+        instance = this;
 
+        // scene init
         initJCuda();
         initBuffers();
 
-//        PresetScenes.loadScene(1, triangles, spheres, pointLights, new Vec3(-2, -2, -5));
-        PresetScenes.loadScene(4, triangles, spheres, pointLights, new Vec3(0, 0, 0));
+        PresetScenes.loadScene(1, triangles, spheres, pointLights, new Vec3(0, 0, 0));
 
-        sendSceneData(triangles.toArray(new Triangle[0]), spheres.toArray(new Sphere[0]), pointLights.toArray(new PointLight[0]));
+        objects.addAll(triangles);
+        objects.addAll(spheres);
 
+        // bvh init
+        primCount = new int[GPUManager.instance.objects.size()];
+
+        primBounds = new AABB[GPUManager.instance.objects.size()];
+        primCentroids = new Vec3[GPUManager.instance.objects.size()];
+
+        for (int i = 0; i < GPUManager.instance.objects.size(); i++) {
+            GPUManager.instance.primBounds[i] = AABB.computeBounds(i);
+            GPUManager.instance.primCentroids[i] = AABB.centroidOf(i);
+            primCount[i] = i;
+        }
+
+        BVHNode root = BVHNode.build(0, primCount.length, 0);
+        assert root != null;
+
+        // fill bvh data
+        minBounds = new float[GPUManager.instance.objects.size()*3];
+        maxBounds = new float[GPUManager.instance.objects.size()*3];
+        primCounts = new int[GPUManager.instance.objects.size()];
+        idx = new int[GPUManager.instance.objects.size()];
+
+        int flatten = BVHNode.flatten(root);
+        assert flatten == 0;
+
+        // send scene data + final inits
+        sendSceneData();
         samples = 8192;
-
         initKernels();
     }
 
+    public Triangle getTriangle(int id) {
+        if (objects.get(id) instanceof Triangle) return (Triangle) instance.objects.get(id);
+        return null;
+    }
+
+    public Sphere getSphere(int id) {
+        if (objects.get(id) instanceof Sphere) return (Sphere) instance.objects.get(id);
+        return null;
+    }
 
     private void initBuffers() {
         textureId = glGenTextures();
@@ -97,26 +152,26 @@ public class GPUManager {
         JCudaDriver.cuCtxCreate(context, 0, device);
     }
 
-    private void sendSceneData(Triangle[] triangles, Sphere[] spheres, PointLight[] pointLights) {
+    private void sendSceneData() {
 
-        float[] triangleData = new float[triangles.length * 17];
-        float[] sphereData = new float[spheres.length * 12];
-        float[] pLightData = new float[pointLights.length * 7];
+        float[] triangleData = new float[triangles.size() * 17];
+        float[] sphereData = new float[spheres.size() * 12];
+        float[] pLightData = new float[pointLights.size() * 7];
 
         int i = 0;
 
         for (Triangle triangle : triangles) {
-            triangleData[i] = triangle.v1.x;
-            triangleData[i + 1] = triangle.v1.y;
-            triangleData[i + 2] = triangle.v1.z;
+            triangleData[i] = triangle.p1.x;
+            triangleData[i + 1] = triangle.p1.y;
+            triangleData[i + 2] = triangle.p1.z;
 
-            triangleData[i + 3] = triangle.v2.x;
-            triangleData[i + 4] = triangle.v2.y;
-            triangleData[i + 5] = triangle.v2.z;
+            triangleData[i + 3] = triangle.p2.x;
+            triangleData[i + 4] = triangle.p2.y;
+            triangleData[i + 5] = triangle.p2.z;
 
-            triangleData[i + 6] = triangle.v3.x;
-            triangleData[i + 7] = triangle.v3.y;
-            triangleData[i + 8] = triangle.v3.z;
+            triangleData[i + 6] = triangle.p3.x;
+            triangleData[i + 7] = triangle.p3.y;
+            triangleData[i + 8] = triangle.p3.z;
 
             triangleData[i + 9] = sRGBtoLinear(triangle.material.color.x);
             triangleData[i + 10] = sRGBtoLinear(triangle.material.color.y);
@@ -171,35 +226,132 @@ public class GPUManager {
 
         // --- SAFE ALLOCATIONS ---
 
+
+
+
+        // setup
+        int normalAllocs = 7;
+
+        CUdeviceptr[] normalDevicePtrs = new CUdeviceptr[normalAllocs];
+        CUdeviceptr[] otherDevicePtrs = new CUdeviceptr[1];
+        int[] types = new int[normalAllocs];
+        int[][] intData = new int[normalAllocs][];
+        float[][] floatData = new float[normalAllocs][];
+        double[][] doubleData = new double[normalAllocs][];
+        int[] normalSizes = new int[normalAllocs];
+        int[] otherSizes = new int[1];
+
+        // not normal allocations
         CUdeviceptr allocationBufferPtr = new CUdeviceptr();
         int allocationBufferByteSize = window.WIDTH * window.HEIGHT * 4 * Sizeof.DOUBLE;
         JCudaDriver.cuMemAlloc(allocationBufferPtr, allocationBufferByteSize);
         JCudaDriver.cuMemsetD8(allocationBufferPtr, (byte)0, allocationBufferByteSize);
+        otherDevicePtrs[0] = allocationBufferPtr;
+        otherSizes[0] = allocationBufferByteSize;
 
+        // normal allocations
+        types[0] = 1; // 1 = float
+        types[1] = 1;
+        types[2] = 1;
+        types[3] = 1;
+        types[4] = 1;
+        types[5] = 0; // 0 = int
+        types[6] = 0;
 
-        CUdeviceptr trianglePtr = new CUdeviceptr();
-        int trianglesByteSize = triangleData.length * Sizeof.FLOAT;
-        if (trianglesByteSize > 0) {
-            JCudaDriver.cuMemAlloc(trianglePtr, trianglesByteSize);
-            JCudaDriver.cuMemcpyHtoD(trianglePtr, Pointer.to(triangleData), trianglesByteSize);
+        floatData[0] = triangleData;
+        floatData[1] = sphereData;
+        floatData[2] = pLightData;
+        floatData[3] = minBounds;
+        floatData[4] = maxBounds;
+        intData[5] = primCount;
+        intData[6] = idx;
+
+        int bvhNodes = BVHNode.nodeCount();
+        int[] normalCounts = new int[normalAllocs];
+        normalCounts[0] = triangles.size();
+        normalCounts[1] = spheres.size();
+        normalCounts[2] = pointLights.size();
+        normalCounts[3] = bvhNodes; // minBounds
+        normalCounts[4] = bvhNodes; // maxBounds
+        normalCounts[5] = bvhNodes; // primCount
+        normalCounts[6] = bvhNodes; // idx
+
+        for (i = 0; i < normalAllocs; i++) {
+            CUdeviceptr devicePtr = new CUdeviceptr();
+            normalDevicePtrs[i] = devicePtr;
+
+            int byteSize = 0;
+
+            ByteBuffer data = ByteBuffer.allocate(0).order(ByteOrder.nativeOrder());
+
+            if (types[i] == 0) { // int
+                byteSize = Sizeof.INT * intData[i].length;
+                data = ByteBuffer.allocate(byteSize).order(ByteOrder.nativeOrder());
+                for (int Int : intData[i]) {
+                    data.putInt(Int);
+                }
+            } else if (types[i] == 1) { // float
+                byteSize = Sizeof.FLOAT * floatData[i].length;
+                data = ByteBuffer.allocate(byteSize).order(ByteOrder.nativeOrder());
+                for (float Flt : floatData[i]) {
+                    data.putFloat(Flt);
+                }
+            } else if (types[i] == 2) { // double
+                byteSize = Sizeof.DOUBLE * doubleData[i].length;
+                data = ByteBuffer.allocate(byteSize).order(ByteOrder.nativeOrder());
+                for (double Dbl : doubleData[i]) {
+                    data.putDouble(Dbl);
+                }
+            }
+
+            data.flip();
+
+            if (byteSize > 0) {
+                JCudaDriver.cuMemAlloc(normalDevicePtrs[i], byteSize);
+                JCudaDriver.cuMemcpyHtoD(normalDevicePtrs[i], Pointer.to(data), byteSize);
+                normalSizes[i] = normalCounts[i];
+            }
         }
 
-        CUdeviceptr spherePtr = new CUdeviceptr();
-        int spheresByteSize = sphereData.length * Sizeof.FLOAT;
-        if (spheresByteSize > 0) {
-            JCudaDriver.cuMemAlloc(spherePtr, spheresByteSize);
-            JCudaDriver.cuMemcpyHtoD(spherePtr, Pointer.to(sphereData), spheresByteSize);
-        }
+//        CUdeviceptr trianglePtr = new CUdeviceptr();
+//        int trianglesByteSize = triangleData.length * Sizeof.FLOAT;
+//        if (trianglesByteSize > 0) {
+//            JCudaDriver.cuMemAlloc(trianglePtr, trianglesByteSize);
+//            JCudaDriver.cuMemcpyHtoD(trianglePtr, Pointer.to(triangleData), trianglesByteSize);
+//        }
+//
+//        CUdeviceptr spherePtr = new CUdeviceptr();
+//        int spheresByteSize = sphereData.length * Sizeof.FLOAT;
+//        if (spheresByteSize > 0) {
+//            JCudaDriver.cuMemAlloc(spherePtr, spheresByteSize);
+//            JCudaDriver.cuMemcpyHtoD(spherePtr, Pointer.to(sphereData), spheresByteSize);
+//        }
+//
+//        CUdeviceptr pLightPtr = new CUdeviceptr();
+//        int pLightsByteSize = pLightData.length * Sizeof.FLOAT;
+//        if (pLightsByteSize > 0) {
+//            JCudaDriver.cuMemAlloc(pLightPtr, pLightsByteSize);
+//            JCudaDriver.cuMemcpyHtoD(pLightPtr, Pointer.to(pLightData), pLightsByteSize);
+//        }
+//
+//        CUdeviceptr minBoundsPtr = new CUdeviceptr();
+//        int minBoundsByteSize = minBounds.length * Sizeof.FLOAT;
+//        if (minBoundsByteSize > 0) {
+//            JCudaDriver.cuMemAlloc(minBoundsPtr, minBoundsByteSize);
+//            JCudaDriver.cuMemcpyHtoD(minBoundsPtr, Pointer.to(minBounds), minBoundsByteSize);
+//        }
+//
+//        CUdeviceptr maxBoundsPtr = new CUdeviceptr();
+//        int maxBoundsByteSize = maxBounds.length * Sizeof.FLOAT;
+//        if (maxBoundsByteSize > 0) {
+//            JCudaDriver.cuMemAlloc(maxBoundsPtr, maxBoundsByteSize);
+//            JCudaDriver.cuMemcpyHtoD(maxBoundsPtr, Pointer.to(maxBounds), maxBoundsByteSize);
+//        }
 
-        CUdeviceptr pLightPtr = new CUdeviceptr();
-        int pLightsByteSize = pLightData.length * Sizeof.FLOAT;
-        if (pLightsByteSize > 0) {
-            JCudaDriver.cuMemAlloc(pLightPtr, pLightsByteSize);
-            JCudaDriver.cuMemcpyHtoD(pLightPtr, Pointer.to(pLightData), pLightsByteSize);
-        }
-
-        sceneDataDevicePtrs = new CUdeviceptr[]{allocationBufferPtr, trianglePtr, spherePtr, pLightPtr};
-        sceneDataSizes = new int[]{allocationBufferByteSize, triangles.length, spheres.length, pointLights.length};
+        sceneDataDevicePtrs = Stream.concat(Arrays.stream(otherDevicePtrs), Arrays.stream(normalDevicePtrs))
+                .toArray(CUdeviceptr[]::new);
+        sceneDataSizes = IntStream.concat(Arrays.stream(otherSizes), Arrays.stream(normalSizes))
+                .toArray();
     }
 
     public static float sRGBtoLinear(float sRGB) {

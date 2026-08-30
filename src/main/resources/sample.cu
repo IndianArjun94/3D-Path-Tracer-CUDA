@@ -2,6 +2,7 @@
 #include <math.h>
 #include <cuda/std/utility>
 #include <cfloat> // Required for FLT_MAX
+#include <cuda/std/tuple>
 
 #include "scene_types.cuh"
 #include "math.cuh"
@@ -21,115 +22,174 @@ __device__ float randomFloat(unsigned int& seed) {
     return fmaxf(0.001, fminf(0.999, (float)seed / 4294967295.0f));
 }
 
-__device__ cuda::std::pair<float, Triangle> getLowestTravelTriangles(float3 rayPos, float3 rayDir, Triangle* triangles, int numTriangles) {
-    float lowest_t = FLT_MAX;
-    bool hit = false;
-    Triangle hitTriangle;
 
-    for (int i = 0; i < numTriangles; i++) { // triangle intersection
-        const Triangle& triangle = triangles[i];
+__device__ float hitTriangle(float3 rayPos, float3 rayDir, Triangle& triangle, float tMin, float tMax) {
+    float3 edge0Vector = triangle.v1 - triangle.v0;
+    float3 edge1Vector = triangle.v2 - triangle.v1;
+    float3 edge2Vector = triangle.v0 - triangle.v2;
 
-        // calculate triangle ray travel
+    float3 normal = cross(edge0Vector, edge1Vector);
 
-        float3 edge0Vector = triangle.v1 - triangle.v0;
-        float3 edge1Vector = triangle.v2 - triangle.v1;
-        float3 edge2Vector = triangle.v0 - triangle.v2;
+    float nD_dot = dot(normal, rayDir);
 
-        float3 normal = cross(edge0Vector, edge1Vector);
-
-        float nD_dot = dot(normal, rayDir);
-
-        if (fabsf(nD_dot) < 0.0001) {
-            continue;
-        }
-
-        float t = dot(normal*-1, rayPos - triangle.v0) / nD_dot;
-
-        float3 pos = rayDir * t + rayPos;
-
-        float3 edge0InsideNormal = cross(normal, edge0Vector);
-        float3 edge1InsideNormal = cross(normal, edge1Vector);
-        float3 edge2InsideNormal = cross(normal, edge2Vector);
-
-        int inHalves = 0;
-
-        if (dot(pos-triangle.v0, edge0InsideNormal) > 0) {
-            inHalves++;
-        } if (dot(pos-triangle.v1, edge1InsideNormal) > 0) {
-            inHalves++;
-        } if (dot(pos-triangle.v2, edge2InsideNormal) > 0) {
-            inHalves++;
-        }
-
-        if (inHalves != 3) {
-            t = -1;
-        }
-
-        if (t > 0 && t < lowest_t) {
-            lowest_t = t;
-            hit = true;
-            hitTriangle = triangle;
-        }
-
+    if (fabsf(nD_dot) < 0.0001) {
+        return -1;
     }
 
-    if (hit) {
-        return {lowest_t, hitTriangle};
+    float t = dot(normal*-1, rayPos - triangle.v0) / nD_dot;
+
+    float3 pos = rayDir * t + rayPos;
+
+    float3 edge0InsideNormal = cross(normal, edge0Vector);
+    float3 edge1InsideNormal = cross(normal, edge1Vector);
+    float3 edge2InsideNormal = cross(normal, edge2Vector);
+
+    int inHalves = 0;
+
+    if (dot(pos-triangle.v0, edge0InsideNormal) > 0) {
+        inHalves++;
+    } if (dot(pos-triangle.v1, edge1InsideNormal) > 0) {
+        inHalves++;
+    } if (dot(pos-triangle.v2, edge2InsideNormal) > 0) {
+        inHalves++;
+    }
+
+    if (inHalves != 3) {
+        t = -1;
+    }
+
+    if (t > tMin && t < tMax) {
+        return t;
     } else {
-        return {-1, {{0, 0, 0}, 0, 0}};
+        return -1;
     }
 }
 
-__device__ cuda::std::pair<float, Sphere> getLowestTravelSpheres(float3 rayPos, float3 rayDir, Sphere* spheres, int numSpheres) {
-    float lowest_t = FLT_MAX;
-    bool hit = false;
-    Sphere hitSphere;
+__device__ float hitSphere(float3 rayPos, float3 rayDir, Sphere& sphere, float tMin, float tMax) {
+    float3 L = rayPos - sphere.pos;
+    float a = dot(rayDir, rayDir);
+    float b = 2.0f * dot(rayDir, L);
+    float c = dot(L, L) - (sphere.radius * sphere.radius);
+
+    float discriminant = b*b - 4*a*c;
+
+    if (discriminant < 0) {
+        return -1;
+    }
+
+    float solution0 = (-b - sqrtf(discriminant)) / (2*a);
+    float solution1 = (-b + sqrtf(discriminant)) / (2*a);
+
+    float t = -1;
+
+    if (solution0 > 0) {
+        t = solution0;
+    } else if (solution1 > 0) {
+        t = solution1;
+    }
+
+    if (t > tMin && t < tMax) {
+        return t;
+    } else {
+        return -1;
+    }
+}
+
+__device__ bool intersectAny(float3 rayPos, float3 rayDir, Triangle* triangles, int numTriangles, Sphere* spheres, int numSpheres, float tMin, float tMax) {
+    for (int i = 0; i < numTriangles; i++) { // triangle intersection
+
+        if (hitTriangle(rayPos, rayDir, triangles[i], tMin, tMax) >= 0) {
+            return true;
+        }
+    }
 
     for (int i = 0; i < numSpheres; i++) { // sphere intersection
-        const Sphere& sphere = spheres[i];
 
-        float3 L = rayPos - sphere.pos;
-        float a = dot(rayDir, rayDir);
-        float b = 2.0f * dot(rayDir, L);
-        float c = dot(L, L) - (sphere.radius * sphere.radius);
-
-//         if (b > 0) {
-//             continue;
-//         }
-
-        float discriminant = b*b - 4*a*c;
-
-        if (discriminant < 0) {
-            continue;
+        if (hitSphere(rayPos, rayDir, spheres[i], tMin, tMax) >= 0) {
+            return true;
         }
 
-        float solution0 = (-b - sqrtf(discriminant)) / (2*a);
-        float solution1 = (-b + sqrtf(discriminant)) / (2*a);
+    }
 
-        float t = -1;
+    return false;
 
-        if (solution0 > 0) {
-            t = solution0;
-        } else if (solution1 > 0) {
-            t = solution1;
-        }
+}
 
-        if (t > 0 && t < lowest_t) {
+
+__device__ cuda::std::pair<float, int> getLowestTravelTriangles(float3 rayPos, float3 rayDir, Triangle* triangles, int numTriangles, float tMin, float tMax) {
+    float best_t = tMax;
+    int best_i = -1;
+    bool hit = false;
+
+    for (int i = 0; i < numTriangles; i++) { // triangle intersection
+        float t = hitTriangle(rayPos, rayDir, triangles[i], tMin, best_t);
+
+        if (t > tMin && t < best_t && t < tMax) {
+            best_t = t;
+            best_i = i;
             hit = true;
-            lowest_t = t;
-            hitSphere = sphere;
         }
 
     }
 
     if (hit) {
-        return {lowest_t, hitSphere};
+        return {best_t, best_i}; // best travel, best index
     } else {
-        return {-1, {{0, 0, 0}, 0, 0}};
+        return {-1, -1};
     }
 }
 
-// Compute the local shading contribution (diffuse/specular/ambient) for the hit point.
+__device__ cuda::std::pair<float, int> getLowestTravelSpheres(float3 rayPos, float3 rayDir, Sphere* spheres, int numSpheres, float tMin, float tMax) {
+    float best_t = FLT_MAX;
+    int best_i = -1;
+    bool hit = false;
+
+    for (int i = 0; i < numSpheres; i++) { // sphere intersection
+        float t = hitSphere(rayPos, rayDir, spheres[i], tMin, best_t);
+
+        if (t > tMin && t < best_t && t < tMax) {
+            best_t = t;
+            best_i = i;
+            hit = true;
+        }
+
+    }
+
+    if (hit) {
+        return {best_t, best_i}; // best travel, best index
+    } else {
+        return {-1, 0};
+    }
+}
+
+__device__ cuda::std::tuple<float, int, int> getBestPrimitive(float3 rayPos, float3 rayDir, Triangle* triangles, int numTriangles, Sphere* spheres, int numSpheres, float tMin, float tMax) {
+    float best_t = tMax; // best (lowest) ray travel (distance) to an object
+    int best_i = -1; // the index of the best primitive (sphere or triangle), same object as for best_t
+    int type = 0; // 0 for triangle, 1 for sphere
+
+    auto lowestTriangle = getLowestTravelTriangles(rayPos, rayDir, triangles, numTriangles, tMin, tMax); // {float travel (best_t), float index (best_i))
+    auto lowestSphere = getLowestTravelSpheres(rayPos, rayDir, spheres, numSpheres, tMin, tMax); // same return type
+
+    if (lowestTriangle.first > 0) { // if ray doesn't hit anything, .first (travel) is -1
+        best_t = lowestTriangle.first;
+        best_i = lowestTriangle.second;
+        type = 0;
+    } if (lowestSphere.first > 0 && lowestSphere.first < best_t) {
+        best_t = lowestSphere.first;
+        best_i = lowestSphere.second;
+        type = 1;
+    }
+
+    if (best_i >= 0) {
+        return cuda::std::make_tuple(best_t, best_i, type); // {float travel (best_t), float index (best_i), int type (0 for triangle, 1 for sphere)}
+    } else {
+        return cuda::std::make_tuple(-1, 0, 0);
+    }
+
+}
+
+
+// Compute the local shading contribution (lambertian DIFFUSE) for the hit point.
 // Inputs are typically position, normal, material, and light parameters; output is RGB.
 __device__ float3 getLocalColor(float3 rayPos, float3 rayDir, Material material, float3 normal, Triangle* triangles, int numTriangles, Sphere* spheres, int numSpheres, PointLight* pointLights, int numPointLights, unsigned int& seed) {
     float3 totalLight = make_float3(0.0f, 0.0f, 0.0f);
@@ -156,14 +216,7 @@ __device__ float3 getLocalColor(float3 rayPos, float3 rayDir, Material material,
 
         bool isShadowed = false;
 
-        auto smallestTriangleTravel = getLowestTravelTriangles(shadowRayPos, lightDir, triangles, numTriangles);
-        auto smallestSphereTravel = getLowestTravelSpheres(shadowRayPos, lightDir, spheres, numSpheres);
-
-        if (smallestTriangleTravel.first > 0 && smallestTriangleTravel.first < distance) {
-            isShadowed = true;
-        } else if (smallestSphereTravel.first > 0 && smallestSphereTravel.first < distance) {
-            isShadowed = true;
-        }
+        if (intersectAny(shadowRayPos, lightDir, triangles, numTriangles, spheres, numSpheres, epsilon, distance)) isShadowed = true;
 
         distance = fmaxf(distance, light_radius);
 
@@ -206,8 +259,9 @@ __device__ int linearToSRGB(float linear) {
     return __float2int_rn(srgb * 255.0f);
 }
 
+
 extern "C"
-__global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int height, Triangle* triangles, int numTriangles, Sphere* spheres, int numSpheres, PointLight* pointLights, int numPointLights, int frame_number) {
+__global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int height, Triangle* triangles, int numTriangles, Sphere* spheres, int numSpheres, PointLight* pointLights, int numPointLights, float3* minBounds, float3* maxBounds, float* primCounts, float* idx, float primCount, int frame_number) {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
     if (x >= width || y >= height) return;
@@ -241,50 +295,38 @@ __global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int 
 
     // check if it hits any object
 
-    for (int bounces = 0; bounces < 30; bounces++) {
+    for (int bounces = 0; bounces < 10; bounces++) {
 
-        // finding the next object AND getting a new rayPos at the hit pos, rayDir, normal, and material ---------------------------------------
+        // ray travel to next object  ---------------------------------------
 
 
-        float lowest_t = FLT_MAX;
-        bool hit = false;
-        Triangle hitTriangle;
-        Sphere hitSphere;
-        int type;
+        auto closest = getBestPrimitive(rayPos, rayDir, triangles, numTriangles, spheres, numSpheres, epsilon, FLT_MAX);
 
-        auto lowestTriangleTravel = getLowestTravelTriangles(rayPos, rayDir, triangles, numTriangles);
-        auto lowestSphereTravel = getLowestTravelSpheres(rayPos, rayDir, spheres, numSpheres);
 
-        if (lowestTriangleTravel.first > 0) {
-            lowest_t = lowestTriangleTravel.first;
-            hitTriangle = lowestTriangleTravel.second;
-            hit = true;
-            type = 0;
-        } if (lowestSphereTravel.first > 0 && lowestSphereTravel.first < lowest_t) {
-            lowest_t = lowestSphereTravel.first;
-            hitSphere = lowestSphereTravel.second;
-            hit = true;
-            type = 1;
-        }
+        float best_t = cuda::std::get<0>(closest);
+        if (best_t == -1) break; // -1 if no object was hit
+        int best_i = cuda::std::get<1>(closest);
+        int type = cuda::std::get<2>(closest);
 
-        if (!hit) {
-            break;
-        }
 
         float3 normal;
         Material material;
 
-        rayPos = rayDir * lowest_t + rayPos;
+        rayPos = rayDir * best_t + rayPos;
 
         if (type == 0) {
-            float3 edge0Vector = hitTriangle.v1 - hitTriangle.v0;
-            float3 edge1Vector = hitTriangle.v2 - hitTriangle.v1;
+            Triangle tri = triangles[best_i];
+
+            float3 edge0Vector = tri.v1 - tri.v0;
+            float3 edge1Vector = tri.v2 - tri.v1;
 
             normal = normalize(cross(edge0Vector, edge1Vector));
-            material = hitTriangle.material;
+            material = tri.material;
         } else if (type == 1) {
-            normal = normalize(rayPos - hitSphere.pos);
-            material = hitSphere.material;
+            Sphere sph = spheres[best_i];
+
+            normal = normalize(rayPos - sph.pos);
+            material = sph.material;
         }
 
 
@@ -321,9 +363,9 @@ __global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int 
 
         if (inObject) { // transmission color math
             float3 remainingLightFraction = make_float3(
-                __powf(fmaxf(insideMaterial.color.x, epsilon), lowest_t * insideMaterial.density),
-                __powf(fmaxf(insideMaterial.color.y, epsilon), lowest_t * insideMaterial.density),
-                __powf(fmaxf(insideMaterial.color.z, epsilon), lowest_t * insideMaterial.density)
+                __powf(fmaxf(insideMaterial.color.x, epsilon), best_t * insideMaterial.density),
+                __powf(fmaxf(insideMaterial.color.y, epsilon), best_t * insideMaterial.density),
+                __powf(fmaxf(insideMaterial.color.z, epsilon), best_t * insideMaterial.density)
             );
 
             throughput *= remainingLightFraction;

@@ -18,14 +18,30 @@ public class Vec3 { // 3 floats
     }
 
     public Vec3 add(Vec3 vec3) {
-        return new Vec3(this.x + vec3.x, this.y + vec3.y, this.z + vec3.z);
+        this.x += vec3.x;
+        this.y += vec3.y;
+        this.z += vec3.z;
+        return this;
+    }
+
+    public Vec3 add(float a) {
+        this.x += a;
+        this.y += a;
+        this.z += a;
+        return this;
     }
 
     public Vec3 subtract(Vec3 vec3) {
         this.x -= vec3.x;
         this.y -= vec3.y;
         this.z -= vec3.z;
+        return this;
+    }
 
+    public Vec3 subtract(float a) {
+        this.x -= a;
+        this.y -= a;
+        this.z -= a;
         return this;
     }
 
@@ -33,48 +49,6 @@ public class Vec3 { // 3 floats
         this.x *= vec3.x;
         this.y *= vec3.y;
         this.z *= vec3.z;
-
-        return this;
-    }
-
-    public Vec3 divide(Vec3 vec3) {
-        this.x /= vec3.x;
-        this.y /= vec3.y;
-        this.z /= vec3.z;
-
-        return this;
-    }
-
-
-    public Vec3 add(float x, float y, float z) {
-        this.x += x;
-        this.y += y;
-        this.z += z;
-
-        return this;
-    }
-
-    public Vec3 subtract(float x, float y, float z) {
-        this.x -= x;
-        this.y -= y;
-        this.z -= z;
-
-        return this;
-    }
-
-    public Vec3 multiply(float x, float y, float z) {
-        this.x *= x;
-        this.y *= y;
-        this.z *= z;
-
-        return this;
-    }
-
-    public Vec3 divide(float x, float y, float z) {
-        this.x /= x;
-        this.y /= y;
-        this.z /= z;
-
         return this;
     }
 
@@ -82,7 +56,13 @@ public class Vec3 { // 3 floats
         this.x *= scalar;
         this.y *= scalar;
         this.z *= scalar;
+        return this;
+    }
 
+    public Vec3 divide(Vec3 vec3) {
+        this.x /= vec3.x;
+        this.y /= vec3.y;
+        this.z /= vec3.z;
         return this;
     }
 
@@ -90,10 +70,8 @@ public class Vec3 { // 3 floats
         this.x /= scalar;
         this.y /= scalar;
         this.z /= scalar;
-
         return this;
     }
-
 
     public float dot(Vec3 normal) {
         return x*normal.x + y*normal.y + z*normal.z;
@@ -119,7 +97,6 @@ public class Vec3 { // 3 floats
          */
 
         divide(length());
-
         return this;
     }
 
@@ -151,6 +128,9 @@ public class Vec3 { // 3 floats
 
         return this;
     }
+
+
+    public float getAxis(int axis) { return axis == 0 ? x : (axis == 1 ? y : z); } // returns the x, y, or z for axis = 0, 1, or 2
 
 
 

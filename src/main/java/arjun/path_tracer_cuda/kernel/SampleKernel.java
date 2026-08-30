@@ -43,6 +43,11 @@ public class SampleKernel extends Kernel {
                 Pointer.to(new int[]{sceneDataSizes[2]}),
                 Pointer.to(sceneDataDevicePtrs[3]),
                 Pointer.to(new int[]{sceneDataSizes[3]}),
+                Pointer.to(sceneDataDevicePtrs[4]), // minBounds
+                Pointer.to(sceneDataDevicePtrs[5]), // maxBounds
+                Pointer.to(sceneDataDevicePtrs[6]), // primCounts
+                Pointer.to(sceneDataDevicePtrs[7]), // idx
+                Pointer.to(new float[]{sceneDataSizes[7]}),
                 Pointer.to(new int[]{frame})
         );
 
