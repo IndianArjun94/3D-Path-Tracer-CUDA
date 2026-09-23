@@ -235,6 +235,25 @@ __device__ float3 getLocalColor(float3 rayPos, float3 rayDir, Material material,
     return finalColor;
 }
 
+__device__ float hitAABB(float3 rayPos, float3 invDir,
+                         float3 boxMin, float3 boxMax,
+                         float tMin, float tMax) {
+
+    float t_xMin = (rayPos.x - boxMin.x) / invDir.x;
+    float t_yMin = (rayPos.y - boxMin.y) / invDir.y;
+    float t_zMin = (rayPos.z - boxMin.z) / invDir.z;
+
+    float t_xMax = (rayPos.x - boxMax.x) / invDir.x;
+    float t_yMax = (rayPos.y - boxMax.y) / invDir.y;
+    float t_zMax = (rayPos.z - boxMax.z) / invDir.z;
+
+    float tMin = fmaxf(fmaxf(t_xMin, t_yMin), t_zMin);
+    float tMax = fminf(fminf(t_xMax, t_yMax), t_zMax);
+
+    return tMin > tMax ? -1 : tMin;
+
+}
+
 __device__ float3 toneMap(float3 c) {
     const float w  = 4.0f;        // the linear value that becomes pure white
     const float w2 = w * w;
@@ -261,7 +280,7 @@ __device__ int linearToSRGB(float linear) {
 
 
 extern "C"
-__global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int height, Triangle* triangles, int numTriangles, Sphere* spheres, int numSpheres, PointLight* pointLights, int numPointLights, float3* minBounds, float3* maxBounds, float* primCounts, float* idx, float primCount, int frame_number) {
+__global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int height, Triangle* triangles, int numTriangles, Sphere* spheres, int numSpheres, PointLight* pointLights, int numPointLights, float3* minBounds, float3* maxBounds, float* primCounts, float* idx, float primCount, bool useAABB, int frame_number) {
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
     if (x >= width || y >= height) return;

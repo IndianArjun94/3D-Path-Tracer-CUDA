@@ -72,7 +72,7 @@ public class GPUManager {
         initJCuda();
         initBuffers();
 
-        PresetScenes.loadScene(1, triangles, spheres, pointLights, new Vec3(0, 0, 0));
+        PresetScenes.loadScene(6, triangles, spheres, pointLights, new Vec3(0, 0, 0));
 
         objects.addAll(triangles);
         objects.addAll(spheres);
@@ -277,9 +277,6 @@ public class GPUManager {
         normalCounts[6] = bvhNodes; // idx
 
         for (i = 0; i < normalAllocs; i++) {
-            CUdeviceptr devicePtr = new CUdeviceptr();
-            normalDevicePtrs[i] = devicePtr;
-
             int byteSize = 0;
 
             ByteBuffer data = ByteBuffer.allocate(0).order(ByteOrder.nativeOrder());
@@ -306,11 +303,8 @@ public class GPUManager {
 
             data.flip();
 
-            if (byteSize > 0) {
-                JCudaDriver.cuMemAlloc(normalDevicePtrs[i], byteSize);
-                JCudaDriver.cuMemcpyHtoD(normalDevicePtrs[i], Pointer.to(data), byteSize);
-                normalSizes[i] = normalCounts[i];
-            }
+            normalDevicePtrs[i] = uploadToDevice(data, byteSize);
+            normalSizes[i] = normalCounts[i];
         }
 
 //        CUdeviceptr trianglePtr = new CUdeviceptr();
@@ -352,6 +346,17 @@ public class GPUManager {
                 .toArray(CUdeviceptr[]::new);
         sceneDataSizes = IntStream.concat(Arrays.stream(otherSizes), Arrays.stream(normalSizes))
                 .toArray();
+    }
+
+    private static CUdeviceptr uploadToDevice(ByteBuffer data, int byteSize) {
+        CUdeviceptr devicePtr = new CUdeviceptr();
+
+        if (byteSize > 0) {
+            JCudaDriver.cuMemAlloc(devicePtr, byteSize);
+            JCudaDriver.cuMemcpyHtoD(devicePtr, Pointer.to(data), byteSize);
+        }
+
+        return devicePtr;
     }
 
     public static float sRGBtoLinear(float sRGB) {
