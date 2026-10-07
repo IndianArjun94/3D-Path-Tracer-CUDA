@@ -47,7 +47,13 @@ public class SampleKernel extends Kernel {
                 Pointer.to(sceneDataDevicePtrs[5]), // maxBounds
                 Pointer.to(sceneDataDevicePtrs[6]), // primCounts
                 Pointer.to(sceneDataDevicePtrs[7]), // idx
-                Pointer.to(new float[]{sceneDataSizes[7]}),
+                Pointer.to(sceneDataDevicePtrs[8]), // primitiveIDs
+                Pointer.to(sceneDataDevicePtrs[9]), // pLightMinBounds
+                Pointer.to(sceneDataDevicePtrs[10]), // pLightMaxBounds
+                Pointer.to(sceneDataDevicePtrs[11]), // pLightCounts
+                Pointer.to(sceneDataDevicePtrs[12]), // pLightIdx
+                Pointer.to(sceneDataDevicePtrs[13]), // pLightIDs
+                Pointer.to(sceneDataDevicePtrs[14]), // pLightPower
                 Pointer.to(new int[]{frame})
         );
 

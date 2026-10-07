@@ -3,9 +3,11 @@ package arjun.path_tracer_cuda;
 import arjun.path_tracer_cuda.geometry.*;
 import arjun.path_tracer_cuda.geometry.BVH.AABB;
 import arjun.path_tracer_cuda.geometry.BVH.BVHNode;
+import arjun.path_tracer_cuda.geometry.BVH.PLightBVHNode;
 import arjun.path_tracer_cuda.kernel.Kernel;
 import arjun.path_tracer_cuda.kernel.KernelManager;
 import arjun.path_tracer_cuda.kernel.SampleKernel;
+import arjun.path_tracer_cuda.preset_scenes.PresetScenesManager;
 import jcuda.Pointer;
 import jcuda.Sizeof;
 import jcuda.driver.*;
@@ -55,16 +57,30 @@ public class GPUManager {
 
     public AABB[] primBounds; // aabb for each primitive (triangle or sphere)
     public Vec3[] primCentroids; // centroid (center) of each primitive
+    public Vec3[] pLightCentroids;
 
-    public int[] primCount; // the ids for each primitive (points to GPUManager objects arraylist), to be shuffled later
+    public int[] primitiveIDs; // the ids for each primitive (points to GPUManager objects arraylist), to be shuffled later
+    public int[] pLightIDs; // the ids for each primitive (points to GPUManager objects arraylist), to be shuffled later
 
-    public float[] minBounds;
-    public float[] maxBounds;
+    public float[] primMinBounds;
+    public float[] primMaxBounds;
     public int[] primCounts; // always the prim counts
-    public int[] idx; // for leafs: the first prim index. for interiors: index of right child
+    public int[] primIdx; // for leafs: the first prim index. for interiors: index of right child
+
+    public float[] pLightMinBounds;
+    public float[] pLightMaxBounds;
+    public int[] pLightCounts; // always the prim counts
+    public int[] pLightIdx; // for leafs: the first prim index. for interiors: index of right child
+    public float[] pLightPower; // 3 floats per node: the summed power of the lights under it
     //  ---------------------------------------------
 
-    public GPUManager(Window window) {
+    public GPUManager(Window window, int sceneNumber) {
+        this(window, sceneNumber, new Vec3(0, 0, 0));
+    }
+
+    /* positionOffset moves the scene relative to the camera: +x right, +y up, +z towards the camera,
+     * in the scene's own units (see PresetScenesManager.loadScene) - (0, 0, -5) steps the camera back 5. */
+    public GPUManager(Window window, int sceneNumber, Vec3 positionOffset) {
         this.window = window;
         instance = this;
 
@@ -72,34 +88,58 @@ public class GPUManager {
         initJCuda();
         initBuffers();
 
-        PresetScenes.loadScene(6, triangles, spheres, pointLights, new Vec3(0, 0, 0));
+        PresetScenesManager.loadScene(sceneNumber, triangles, spheres, pointLights, new Vec3(positionOffset));
 
         objects.addAll(triangles);
         objects.addAll(spheres);
 
         // bvh init
-        primCount = new int[GPUManager.instance.objects.size()];
+        primitiveIDs = new int[GPUManager.instance.objects.size()];
+        pLightIDs = new int[GPUManager.instance.pointLights.size()];
 
         primBounds = new AABB[GPUManager.instance.objects.size()];
         primCentroids = new Vec3[GPUManager.instance.objects.size()];
+        pLightCentroids = new Vec3[GPUManager.instance.pointLights.size()];
 
         for (int i = 0; i < GPUManager.instance.objects.size(); i++) {
             GPUManager.instance.primBounds[i] = AABB.computeBounds(i);
             GPUManager.instance.primCentroids[i] = AABB.centroidOf(i);
-            primCount[i] = i;
+            primitiveIDs[i] = i;
         }
 
-        BVHNode root = BVHNode.build(0, primCount.length, 0);
+        for (int i = 0; i < GPUManager.instance.pointLights.size(); i++) {
+            GPUManager.instance.pLightCentroids[i] = GPUManager.instance.pointLights.get(i).pos;
+            pLightIDs[i] = i;
+        }
+
+
+        BVHNode root = new BVHNode();
+        root = root.build(0, primitiveIDs.length, 0);
         assert root != null;
 
         // fill bvh data
-        minBounds = new float[GPUManager.instance.objects.size()*3];
-        maxBounds = new float[GPUManager.instance.objects.size()*3];
-        primCounts = new int[GPUManager.instance.objects.size()];
-        idx = new int[GPUManager.instance.objects.size()];
+        int maxNodes = 2 * GPUManager.instance.objects.size() - 1; // worst case: every leaf holds 1 prim -> N leaves -> 2N-1 nodes
+        primMinBounds = new float[maxNodes*3];
+        primMaxBounds = new float[maxNodes*3];
+        primCounts = new int[maxNodes];
+        primIdx = new int[maxNodes];
 
         int flatten = BVHNode.flatten(root);
         assert flatten == 0;
+
+        // point light bvh
+        int maxLightNodes = Math.max(0, 2 * GPUManager.instance.pointLights.size() - 1);
+        pLightMinBounds = new float[maxLightNodes*3];
+        pLightMaxBounds = new float[maxLightNodes*3];
+        pLightCounts = new int[maxLightNodes];
+        pLightIdx = new int[maxLightNodes];
+        pLightPower = new float[maxLightNodes*3];
+
+        if (!pointLights.isEmpty()) {
+            PLightBVHNode lightRoot = (PLightBVHNode) new PLightBVHNode().build(0, pLightIDs.length, 0);
+            int lightFlatten = PLightBVHNode.flatten(lightRoot);
+            assert lightFlatten == 0;
+        }
 
         // send scene data + final inits
         sendSceneData();
@@ -230,7 +270,7 @@ public class GPUManager {
 
 
         // setup
-        int normalAllocs = 7;
+        int normalAllocs = 14;
 
         CUdeviceptr[] normalDevicePtrs = new CUdeviceptr[normalAllocs];
         CUdeviceptr[] otherDevicePtrs = new CUdeviceptr[1];
@@ -257,16 +297,32 @@ public class GPUManager {
         types[4] = 1;
         types[5] = 0; // 0 = int
         types[6] = 0;
+        types[7] = 0;
+        types[8] = 1;
+        types[9] = 1;
+        types[10] = 0;
+        types[11] = 0;
+        types[12] = 0;
+        types[13] = 1;
 
+        // order must match the kernel's parameter order
         floatData[0] = triangleData;
         floatData[1] = sphereData;
         floatData[2] = pLightData;
-        floatData[3] = minBounds;
-        floatData[4] = maxBounds;
-        intData[5] = primCount;
-        intData[6] = idx;
+        floatData[3] = primMinBounds;
+        floatData[4] = primMaxBounds;
+        intData[5] = primCounts;
+        intData[6] = primIdx;
+        intData[7] = primitiveIDs;
+        floatData[8] = pLightMinBounds;
+        floatData[9] = pLightMaxBounds;
+        intData[10] = pLightCounts;
+        intData[11] = pLightIdx;
+        intData[12] = pLightIDs;
+        floatData[13] = pLightPower;
 
         int bvhNodes = BVHNode.nodeCount();
+        int lightBvhNodes = PLightBVHNode.nodeCount();
         int[] normalCounts = new int[normalAllocs];
         normalCounts[0] = triangles.size();
         normalCounts[1] = spheres.size();
@@ -275,6 +331,13 @@ public class GPUManager {
         normalCounts[4] = bvhNodes; // maxBounds
         normalCounts[5] = bvhNodes; // primCount
         normalCounts[6] = bvhNodes; // idx
+        normalCounts[7] = primitiveIDs.length; // primitiveIDs
+        normalCounts[8] = lightBvhNodes; // pLightMinBounds
+        normalCounts[9] = lightBvhNodes; // pLightMaxBounds
+        normalCounts[10] = lightBvhNodes; // pLightCounts
+        normalCounts[11] = lightBvhNodes; // pLightIdx
+        normalCounts[12] = pLightIDs.length; // pLightIDs
+        normalCounts[13] = lightBvhNodes; // pLightPower
 
         for (i = 0; i < normalAllocs; i++) {
             int byteSize = 0;
@@ -378,12 +441,13 @@ public class GPUManager {
         glfwShowWindow(window.windowHandle);
 
         int frame = 1;
+        long startTime = System.nanoTime();
 
         try {
             while (!glfwWindowShouldClose(window.windowHandle) && frame <= samples) {
                 glfwPollEvents();
 
-                if (frame % 25 == 0) System.out.println("Frame " + frame);
+//                if (frame % 25 == 0) System.out.println("Frame " + frame);
 
                 glClear(GL_COLOR_BUFFER_BIT); // Clear the canvas
 
@@ -425,6 +489,8 @@ public class GPUManager {
 
                 kernelManager.resetRunStage();
 
+                System.out.println("Frame: " + frame + " at " + (System.nanoTime() - startTime) / 1000000 + " ms");
+                startTime = System.nanoTime();
                 frame++;
 
             }

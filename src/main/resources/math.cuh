@@ -107,3 +107,7 @@ __device__ inline float3 normalize(const float3& v) {
 
     return v * rsqrtf(len2);
 }
+
+__device__ float sumOfFloat3(const float3& v) {
+    return v.x + v.y + v.z;
+}

@@ -11,6 +11,16 @@ __constant__ float epsilon = 0.0001f;
 __constant__ float roughness_scalar = 0.4f;
 __constant__ float e = 2.7182f;
 
+// Firefly clamp: the most light (brightest of r, g, b, linear, before tone mapping) that one
+// bounced sample may add to a pixel. Rare paths that bounce into a tiny, fiercely lit surface
+// (a spotlight bulb, the inside of its can) otherwise add thousands of times a pixel's normal
+// value in one go, and take thousands of frames to average away. What matters is the cap
+// relative to the darkest pixels: in a dark room (~0.01) a cap of 10 is still ~1000x and a speck
+// lingers for hundreds of frames; 2 fades in a few dozen, while ordinary bounced light here stays
+// well under it. Lower = fewer specks but more lost light; raise it if caustics or reflections of
+// bright things look dulled, or for brightly lit scenes where there's more headroom.
+__constant__ float indirectClamp = 2.0f;
+
 __device__ unsigned int hash(unsigned int seed) {
     unsigned int state = seed * 747796405u + 2891336453u;
     unsigned int word = ((state >> ((state >> 28u) + 4u)) ^ state) * 277803737u;
@@ -104,11 +114,9 @@ __device__ bool intersectAny(float3 rayPos, float3 rayDir, Triangle* triangles, 
     }
 
     for (int i = 0; i < numSpheres; i++) { // sphere intersection
-
         if (hitSphere(rayPos, rayDir, spheres[i], tMin, tMax) >= 0) {
             return true;
         }
-
     }
 
     return false;
@@ -116,117 +124,268 @@ __device__ bool intersectAny(float3 rayPos, float3 rayDir, Triangle* triangles, 
 }
 
 
-__device__ cuda::std::pair<float, int> getLowestTravelTriangles(float3 rayPos, float3 rayDir, Triangle* triangles, int numTriangles, float tMin, float tMax) {
+__device__ float hitAABB(float3 rayPos, float3 invDir,
+                         float3 boxMin, float3 boxMax,
+                         float tMin, float tMax) {
+
+    float t_xMin = (boxMin.x - rayPos.x) * invDir.x;
+    float t_xMax = (boxMax.x - rayPos.x) * invDir.x;
+    float t_yMin = (boxMin.y - rayPos.y) * invDir.y;
+    float t_yMax = (boxMax.y - rayPos.y) * invDir.y;
+    float t_zMin = (boxMin.z - rayPos.z) * invDir.z;
+    float t_zMax = (boxMax.z - rayPos.z) * invDir.z;
+
+    float t_xEnter = fminf(t_xMin, t_xMax);
+    float t_xExit  = fmaxf(t_xMin, t_xMax);
+    float t_yEnter = fminf(t_yMin, t_yMax);
+    float t_yExit  = fmaxf(t_yMin, t_yMax);
+    float t_zEnter = fminf(t_zMin, t_zMax);
+    float t_zExit  = fmaxf(t_zMin, t_zMax);
+
+    float tEnter = fmaxf(tMin, fmaxf(t_xEnter, fmaxf(t_yEnter, t_zEnter)));
+    float tExit  = fminf(tMax, fminf(t_xExit,  fminf(t_yExit,  t_zExit)));
+
+    return (tExit >= tEnter) ? tEnter : -1.0f;
+}
+
+__device__ cuda::std::tuple<float, int, int> getBestPrimitive(float3 rayPos, float3 rayDir, float3 invDir,
+                                                              Triangle* triangles, int numTriangles,
+                                                              Sphere* spheres, int numSpheres,
+                                                              float* nodeMin, float* nodeMax,
+                                                              int* nodePrimCount, int* nodeIdx, int* primIDs,
+                                                              float tMin, float tMax) {
+    int node = 0;
+    int stack[128];
+    int stackPtr = 0;
+
     float best_t = tMax;
     int best_i = -1;
-    bool hit = false;
+    auto type = 0;
 
-    for (int i = 0; i < numTriangles; i++) { // triangle intersection
-        float t = hitTriangle(rayPos, rayDir, triangles[i], tMin, best_t);
+    while (true) {
+        if (nodePrimCount[node] == 0) { // interior node
 
-        if (t > tMin && t < best_t && t < tMax) {
-            best_t = t;
-            best_i = i;
-            hit = true;
+            int leftChildIndex = node + 1;
+            int rightChildIndex = nodeIdx[node]; // for interiors, this is the index of the right child;
+
+            float3 leftAABBMin = make_float3(nodeMin[leftChildIndex*3],
+                                              nodeMin[leftChildIndex*3+1],
+                                              nodeMin[leftChildIndex*3+2]);
+
+            float3 leftAABBMax = make_float3(nodeMax[leftChildIndex*3],
+                                              nodeMax[leftChildIndex*3+1],
+                                              nodeMax[leftChildIndex*3+2]);
+
+            float3 rightAABBMin = make_float3(nodeMin[rightChildIndex*3],
+                                              nodeMin[rightChildIndex*3+1],
+                                              nodeMin[rightChildIndex*3+2]);
+
+            float3 rightAABBMax = make_float3(nodeMax[rightChildIndex*3],
+                                              nodeMax[rightChildIndex*3+1],
+                                              nodeMax[rightChildIndex*3+2]);
+
+
+            // check if ray hits left child
+
+            float leftAABBTravel = hitAABB(rayPos, invDir, leftAABBMin, leftAABBMax, tMin, best_t);
+            float rightAABBTravel = hitAABB(rayPos, invDir, rightAABBMin, rightAABBMax, tMin, best_t);
+
+            bool hitL = leftAABBTravel  >= 0.0f;
+            bool hitR = rightAABBTravel >= 0.0f;
+
+            if (hitL && hitR) { // hit both
+                node = leftChildIndex;
+                stack[stackPtr++] = rightChildIndex;
+            } else if (hitL) { // hit left
+                node = leftChildIndex;
+            } else if (hitR) { // hit right
+                node = rightChildIndex;
+            } else { // hit neither
+                if (stackPtr == 0) break;
+                node = stack[--stackPtr];
+            }
+
+        } else { // leaf node
+            int childrenID = nodeIdx[node];
+
+            for (int id = childrenID; id < childrenID + nodePrimCount[node]; id++) {
+                float t = (primIDs[id] < numTriangles)
+                    ? hitTriangle(rayPos, rayDir, triangles[primIDs[id]], tMin, best_t)
+                    : hitSphere(rayPos, rayDir, spheres[primIDs[id] - numTriangles], tMin, best_t);
+
+                if (t > 0) {
+                    best_t = t; // best travel
+                    type = (primIDs[id] < numTriangles) ? 0 : 1;
+                    best_i = (type == 0) ? primIDs[id] : primIDs[id] - numTriangles; // index into triangles[] or spheres[]
+                }
+            }
+
+            if (stackPtr > 0) {
+                stackPtr--;
+                node = stack[stackPtr];
+            } else {break;}
         }
 
     }
 
-    if (hit) {
-        return {best_t, best_i}; // best travel, best index
-    } else {
-        return {-1, -1};
-    }
-}
-
-__device__ cuda::std::pair<float, int> getLowestTravelSpheres(float3 rayPos, float3 rayDir, Sphere* spheres, int numSpheres, float tMin, float tMax) {
-    float best_t = FLT_MAX;
-    int best_i = -1;
-    bool hit = false;
-
-    for (int i = 0; i < numSpheres; i++) { // sphere intersection
-        float t = hitSphere(rayPos, rayDir, spheres[i], tMin, best_t);
-
-        if (t > tMin && t < best_t && t < tMax) {
-            best_t = t;
-            best_i = i;
-            hit = true;
-        }
-
+    if (best_i < 0) {
+        return cuda::std::make_tuple(-1.0f, 0, 0);
     }
 
-    if (hit) {
-        return {best_t, best_i}; // best travel, best index
-    } else {
-        return {-1, 0};
-    }
-}
-
-__device__ cuda::std::tuple<float, int, int> getBestPrimitive(float3 rayPos, float3 rayDir, Triangle* triangles, int numTriangles, Sphere* spheres, int numSpheres, float tMin, float tMax) {
-    float best_t = tMax; // best (lowest) ray travel (distance) to an object
-    int best_i = -1; // the index of the best primitive (sphere or triangle), same object as for best_t
-    int type = 0; // 0 for triangle, 1 for sphere
-
-    auto lowestTriangle = getLowestTravelTriangles(rayPos, rayDir, triangles, numTriangles, tMin, tMax); // {float travel (best_t), float index (best_i))
-    auto lowestSphere = getLowestTravelSpheres(rayPos, rayDir, spheres, numSpheres, tMin, tMax); // same return type
-
-    if (lowestTriangle.first > 0) { // if ray doesn't hit anything, .first (travel) is -1
-        best_t = lowestTriangle.first;
-        best_i = lowestTriangle.second;
-        type = 0;
-    } if (lowestSphere.first > 0 && lowestSphere.first < best_t) {
-        best_t = lowestSphere.first;
-        best_i = lowestSphere.second;
-        type = 1;
-    }
-
-    if (best_i >= 0) {
-        return cuda::std::make_tuple(best_t, best_i, type); // {float travel (best_t), float index (best_i), int type (0 for triangle, 1 for sphere)}
-    } else {
-        return cuda::std::make_tuple(-1, 0, 0);
-    }
-
+    return cuda::std::make_tuple(best_t, best_i, type);
 }
 
 
 // Compute the local shading contribution (lambertian DIFFUSE) for the hit point.
 // Inputs are typically position, normal, material, and light parameters; output is RGB.
-__device__ float3 getLocalColor(float3 rayPos, float3 rayDir, Material material, float3 normal, Triangle* triangles, int numTriangles, Sphere* spheres, int numSpheres, PointLight* pointLights, int numPointLights, unsigned int& seed) {
+// how far a light's position is jittered for soft shadows - the light tree has to allow for it too
+#define LIGHT_JITTER 0.35f
+
+/* How much light node i of the light BVH could deliver to point p with normal n - the score the
+ * tree walk picks children by. Total power over squared distance, times the most favourable
+ * cosine any light in the node could have with the normal: the node's box is treated as a sphere
+ * (plus the jitter), and the cosine is taken to the near edge of that sphere rather than its
+ * centre. That makes the score
+ *   - never negative, so the branch probabilities always lie in 0..1
+ *   - zero only when every light in the node is behind the surface, so dropping it is exact
+ *   - smooth as the normal turns, so neighbouring facets of a flat-shaded curve pick lights the
+ *     same way instead of flipping between branches facet by facet */
+__device__ float lightNodeImportance(int i, float3 p, float3 n, const float* nodeMin, const float* nodeMax,
+                                     const float* nodePower, float jitter) {
+    float3 mn = make_float3(nodeMin[i*3], nodeMin[i*3+1], nodeMin[i*3+2]);
+    float3 mx = make_float3(nodeMax[i*3], nodeMax[i*3+1], nodeMax[i*3+2]);
+    float3 toCentre = (mn + mx) * 0.5f - p;
+    float r = length((mx - mn) * 0.5f) + jitter; // bounding sphere of the box, plus the jitter
+    float d2 = dot(toCentre, toCentre);
+    float power = nodePower[i*3] + nodePower[i*3+1] + nodePower[i*3+2]; // 3 floats (r, g, b) per node
+
+    float cosBound = 1.0f; // inside the sphere, a light could be in any direction
+    if (d2 > r * r) {
+        float d = sqrtf(d2);
+        float cosT = dot(n, toCentre) / d;                       // normal to the sphere's centre
+        float sinT = sqrtf(fmaxf(0.0f, 1.0f - cosT * cosT));
+        float sinB = r / d, cosB = sqrtf(fmaxf(0.0f, 1.0f - sinB * sinB)); // the sphere's angular radius
+        cosBound = cosT >= cosB ? 1.0f : cosT * cosB + sinT * sinB; // cos(angle to the centre - angular radius)
+    }
+
+    return power * fmaxf(cosBound, 0.0f) / fmaxf(d2, r * r);
+}
+
+__device__ float3 getLocalColor(float3 rayPos, float3 rayDir, Material material, float3 normal, Triangle* triangles, int numTriangles, Sphere* spheres, int numSpheres, PointLight* pointLights, int numPointLights, unsigned int& seed, float epsilon, float3 invDir, float* nodeMin, float* nodeMax, int* nodePrimCount, int* nodeIdx, int* primIDs, float* lightNodeMin, float* lightNodeMax, int* lightNodePrimCount, int* lightNodeIdx, int* lightIDs, float* lightNodePower, float tMin, float tMax) {
     float3 totalLight = make_float3(0.0f, 0.0f, 0.0f);
 
-    for (int i = 0; i < numPointLights; i++) {
-        const PointLight& light = pointLights[i];
+    int node = 0;
+    float pathProb = 1.0f;
 
-        seed = hash(seed);
-        float rx = randomFloat(seed) * 2.0f - 1.0f;
-        seed = hash(seed);
-        float ry = randomFloat(seed) * 2.0f - 1.0f;
-        seed = hash(seed);
-        float rz = randomFloat(seed) * 2.0f - 1.0f;
+    while (true) {
+        if (lightNodePrimCount[node] == 0) { // interior node
+            int leftChildIndex = node + 1;
+            int rightChildIndex = lightNodeIdx[node]; // for interiors, this is the index of the right child;
 
-        float light_radius = 0.35f; // Increase for softer shadows, decrease for sharper
-        float3 jitteredLightPos = light.pos + (make_float3(rx, ry, rz) * light_radius);
+            // find light probabilities
+            float probLeft = lightNodeImportance(leftChildIndex, rayPos, normal, lightNodeMin, lightNodeMax, lightNodePower, LIGHT_JITTER);
+            float probRight = lightNodeImportance(rightChildIndex, rayPos, normal, lightNodeMin, lightNodeMax, lightNodePower, LIGHT_JITTER);
 
-        float3 lightDir = jitteredLightPos - rayPos;
+            if (probLeft + probRight <= 0) { // nothing under this node can light the point (scores are never negative)
+                break;
+            }
 
-        float distance = length(lightDir);
-        lightDir = normalize(lightDir);
+            float p = probRight / (probLeft + probRight); // always within 0..1
 
-        float3 shadowRayPos = rayPos + (normal * epsilon);
+            if (randomFloat(seed) < p) {
+                // right child
+                node = rightChildIndex;
+                pathProb *= p;
+            } else {
+                // left child
+                node = leftChildIndex;
+                pathProb *= 1 - p;
+            }
 
-        bool isShadowed = false;
+        } else { // leaf node
+            const PointLight& light = pointLights[lightIDs[lightNodeIdx[node]]];
 
-        if (intersectAny(shadowRayPos, lightDir, triangles, numTriangles, spheres, numSpheres, epsilon, distance)) isShadowed = true;
+            seed = hash(seed);
+            float rx = randomFloat(seed) * 2.0f - 1.0f;
+            seed = hash(seed);
+            float ry = randomFloat(seed) * 2.0f - 1.0f;
+            seed = hash(seed);
+            float rz = randomFloat(seed) * 2.0f - 1.0f;
 
-        distance = fmaxf(distance, light_radius);
+            float light_radius = LIGHT_JITTER; // Increase for softer shadows, decrease for sharper (it's defined above the light tree's scoring, which allows for it)
+            float3 jitteredLightPos = light.pos + (make_float3(rx, ry, rz) * light_radius);
 
-        if (!isShadowed) {
-            float3 L = lightDir;
-            float intensity = fmaxf(0, dot(normal, L)) * light.intensity;
-            totalLight += (light.color * intensity) / (distance * distance);
+            float3 lightDir = jitteredLightPos - rayPos;
+
+            float distance = length(lightDir);
+            lightDir = normalize(lightDir);
+
+            float3 shadowRayPos = rayPos + (normal * epsilon);
+
+            bool isShadowed = false;
+
+            //        if (intersectAny(shadowRayPos, lightDir, triangles, numTriangles, spheres, numSpheres, epsilon, distance)) isShadowed = true;
+            //        isShadowed = false; // the hardcode I was talking about Claude
+
+            isShadowed = cuda::std::get<0>(
+                getBestPrimitive(shadowRayPos, lightDir, make_float3(1.0f/lightDir.x, 1.0f/lightDir.y, 1.0f/lightDir.z),
+                triangles, numTriangles, spheres, numSpheres,
+                nodeMin, nodeMax, nodePrimCount,
+                nodeIdx, primIDs, tMin, distance)) != -1;
+
+            distance = fmaxf(distance, light_radius);
+
+            if (!isShadowed) {
+                float intensity = fmaxf(0, dot(normal, lightDir)) * light.intensity;
+                totalLight += (light.color * intensity) / (distance * distance) / pathProb;
+            }
+
+            break;
         }
-
     }
+
+    // old Pre-BVH code
+
+//    for (int i = 0; i < numPointLights; i++) {
+//        const PointLight& light = pointLights[i];
+//
+//        seed = hash(seed);
+//        float rx = randomFloat(seed) * 2.0f - 1.0f;
+//        seed = hash(seed);
+//        float ry = randomFloat(seed) * 2.0f - 1.0f;
+//        seed = hash(seed);
+//        float rz = randomFloat(seed) * 2.0f - 1.0f;
+//
+//        float light_radius = 0.35f; // Increase for softer shadows, decrease for sharper
+//        float3 jitteredLightPos = light.pos + (make_float3(rx, ry, rz) * light_radius);
+//
+//        float3 lightDir = jitteredLightPos - rayPos;
+//
+//        float distance = length(lightDir);
+//        lightDir = normalize(lightDir);
+//
+//        float3 shadowRayPos = rayPos + (normal * epsilon);
+//
+//        bool isShadowed = false;
+//
+////        if (intersectAny(shadowRayPos, lightDir, triangles, numTriangles, spheres, numSpheres, epsilon, distance)) isShadowed = true;
+////        isShadowed = false; // the hardcode I was talking about Claude
+//
+//        isShadowed = cuda::std::get<0>(
+//            getBestPrimitive(shadowRayPos, lightDir, make_float3(1.0f/lightDir.x, 1.0f/lightDir.y, 1.0f/lightDir.z),
+//            triangles, numTriangles, spheres, numSpheres,
+//            nodeMin, nodeMax, nodePrimCount,
+//            nodeIdx, primIDs, tMin, tMax)) != -1;
+//
+//        distance = fmaxf(distance, light_radius);
+//
+//        if (!isShadowed) {
+//            float3 L = lightDir;
+//            float intensity = fmaxf(0, dot(normal, L)) * light.intensity;
+//            totalLight += (light.color * intensity) / (distance * distance);
+//        }
+//
+//    }
 
     float3 finalColor = material.color / 3.14159265f;
     finalColor *= totalLight;
@@ -235,23 +394,10 @@ __device__ float3 getLocalColor(float3 rayPos, float3 rayDir, Material material,
     return finalColor;
 }
 
-__device__ float hitAABB(float3 rayPos, float3 invDir,
-                         float3 boxMin, float3 boxMax,
-                         float tMin, float tMax) {
-
-    float t_xMin = (rayPos.x - boxMin.x) / invDir.x;
-    float t_yMin = (rayPos.y - boxMin.y) / invDir.y;
-    float t_zMin = (rayPos.z - boxMin.z) / invDir.z;
-
-    float t_xMax = (rayPos.x - boxMax.x) / invDir.x;
-    float t_yMax = (rayPos.y - boxMax.y) / invDir.y;
-    float t_zMax = (rayPos.z - boxMax.z) / invDir.z;
-
-    float tMin = fmaxf(fmaxf(t_xMin, t_yMin), t_zMin);
-    float tMax = fminf(fminf(t_xMax, t_yMax), t_zMax);
-
-    return tMin > tMax ? -1 : tMin;
-
+// scales c down so its brightest channel is at most maxValue: the hue stays, the excess energy is dropped
+__device__ float3 clampBrightness(float3 c, float maxValue) {
+    float peak = fmaxf(c.x, fmaxf(c.y, c.z));
+    return peak > maxValue ? c * (maxValue / peak) : c;
 }
 
 __device__ float3 toneMap(float3 c) {
@@ -280,7 +426,23 @@ __device__ int linearToSRGB(float linear) {
 
 
 extern "C"
-__global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int height, Triangle* triangles, int numTriangles, Sphere* spheres, int numSpheres, PointLight* pointLights, int numPointLights, float3* minBounds, float3* maxBounds, float* primCounts, float* idx, float primCount, bool useAABB, int frame_number) {
+__global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int height,
+                       Triangle* triangles, int numTriangles,
+                       Sphere* spheres, int numSpheres,
+                       PointLight* pointLights, int numPointLights,
+                       float* nodeMin,          // 3 floats per node
+                       float* nodeMax,          // 3 floats per node
+                       int* nodePrimCount,      // 0 = interior, >0 = leaf
+                       int* nodeIdx,            // leaf: first position in primIDs; interior: right child index
+                       int* primIDs,            // permuted unified ids
+                       float* lightNodeMin,     // 3 floats per light node
+                       float* lightNodeMax,     // 3 floats per light node
+                       int* lightNodePrimCount, // 0 = interior, >0 = leaf
+                       int* lightNodeIdx,       // leaf: first position in lightIDs; interior: right child index
+                       int* lightIDs,           // permuted point light ids
+                       float* lightNodePower,   // 3 floats per light node: summed power of the lights under it
+                       int frame_number) {
+
     int x = blockIdx.x * blockDim.x + threadIdx.x;
     int y = blockIdx.y * blockDim.y + threadIdx.y;
     if (x >= width || y >= height) return;
@@ -318,8 +480,14 @@ __global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int 
 
         // ray travel to next object  ---------------------------------------
 
+        float3 invDir = make_float3(1.0f / rayDir.x, 1.0f / rayDir.y, 1.0f / rayDir.z);
 
-        auto closest = getBestPrimitive(rayPos, rayDir, triangles, numTriangles, spheres, numSpheres, epsilon, FLT_MAX);
+        auto closest = getBestPrimitive(
+            rayPos, rayDir, invDir,
+            triangles, numTriangles,
+            spheres, numSpheres,
+            nodeMin, nodeMax, nodePrimCount, nodeIdx, primIDs,
+            epsilon, FLT_MAX);
 
 
         float best_t = cuda::std::get<0>(closest);
@@ -356,7 +524,7 @@ __global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int 
 
         // color math ------------------------------------------------
 
-        float3 localColor = getLocalColor(rayPos, rayDir, material, normal, triangles, numTriangles, spheres, numSpheres, pointLights, numPointLights, seed);
+        float3 localColor = getLocalColor(rayPos, rayDir, material, normal, triangles, numTriangles, spheres, numSpheres, pointLights, numPointLights, seed, epsilon, invDir, nodeMin, nodeMax, nodePrimCount, nodeIdx, primIDs, lightNodeMin, lightNodeMax, lightNodePrimCount, lightNodeIdx, lightIDs, lightNodePower, epsilon, best_t);
 
         float3 albedo = material.color;
 
@@ -465,107 +633,108 @@ __global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int 
 
                 */
 
+                float ratioOfIor = previousIOR / material.ior;
 
-                    float ratioOfIor = previousIOR / material.ior;
+                float cosI = -dot(rayDir, normal); // -(N*D)    the length of the normal part of the rayDir (if rayDir faces half way between the normal and parallel to the normal, this would be cos(45 deg) = around 0.707)
 
-                    float cosI = -dot(rayDir, normal); // -(N*D)    the length of the normal part of the rayDir (if rayDir faces half way between the normal and parallel to the normal, this would be cos(45 deg) = around 0.707)
+                /*
 
-                    /*
+                tangential means perpendicular to the normal, parallel to the surface (normal is perpendicular to the surface)
 
-                    tangential means perpendicular to the normal, parallel to the surface (normal is perpendicular to the surface)
+                next, we need the tangential length of rayDir. we already have the normal part.
+                I = rayDir, I_tangentialLength^2 + I_normalLength^2 = 1.0^2
 
-                    next, we need the tangential length of rayDir. we already have the normal part.
-                    I = rayDir, I_tangentialLength^2 + I_normalLength^2 = 1.0^2
+                think of it like a triangle:
+                 - the hypotenuse is the rayDir (I) which is normalized to 1.0.
+                 - one leg is I_normalLength
+                 - the other leg is I_tangentialLength, perpendicular to the normal, and exactly what we need.
 
-                    think of it like a triangle:
-                     - the hypotenuse is the rayDir (I) which is normalized to 1.0.
-                     - one leg is I_normalLength
-                     - the other leg is I_tangentialLength, perpendicular to the normal, and exactly what we need.
+                we just use pythagorean theorem for this
 
-                    we just use pythagorean theorem for this
+                a^2 + b^2 = c^2
 
-                    a^2 + b^2 = c^2
+                but remember, we also have to scale the tangential component length by the ratioOfIor
+                this is the actual refraction part
 
-                    but remember, we also have to scale the tangential component length by the ratioOfIor
-                    this is the actual refraction part
+                I_tangentialLength^2 + I_normalLength^2 = 1.0^2
+                I_tangentialLength^2 = 1^2 - I_normalLength^2
+                I_tangentialLength = sqrt(1 - I_normalLength^2)
 
-                    I_tangentialLength^2 + I_normalLength^2 = 1.0^2
-                    I_tangentialLength^2 = 1^2 - I_normalLength^2
-                    I_tangentialLength = sqrt(1 - I_normalLength^2)
+                to implement the ratioOfIor scale, we replace that last line with:
 
-                    to implement the ratioOfIor scale, we replace that last line with:
+                I_tangentialLength^2 = ratioOfIor^2 * (1 - I_normalLength^2)
 
-                    I_tangentialLength^2 = ratioOfIor^2 * (1 - I_normalLength^2)
+                */
 
-                    */
+                float sinISquared = (ratioOfIor*ratioOfIor) * (1-(cosI*cosI)); // sinI is just I_tangentialLength
 
-                    float sinISquared = (ratioOfIor*ratioOfIor) * (1-(cosI*cosI)); // sinI is just I_tangentialLength
+                /*
 
-                    /*
+                since we scaled the I_tangentialLength by ratioOfIor without also modifying I_normalLength,
+                our I_normalLength will no longer work, and the hypotenuse will no longer be 1.0^2 with the pythagorean theorem
 
-                    since we scaled the I_tangentialLength by ratioOfIor without also modifying I_normalLength,
-                    our I_normalLength will no longer work, and the hypotenuse will no longer be 1.0^2 with the pythagorean theorem
+                I_tangentialLength^2 + I_normalLength^2 != 1.0^2
 
-                    I_tangentialLength^2 + I_normalLength^2 != 1.0^2
+                the solution is to recompute I_normalLength using the pythagorean theorem
 
-                    the solution is to recompute I_normalLength using the pythagorean theorem
+                k = 1^2 - tangentialLength^2
 
-                    k = 1^2 - tangentialLength^2
+                k is the new I_normalLength^2
+                k also helps us check one thing:
 
-                    k is the new I_normalLength^2
-                    k also helps us check one thing:
+                scaling I_tangentialLength^2 by ratioOfIor^2 adjusts the tangential for refraction, but in extreme cases,
+                ratioOfIor could have pushed I_tangentialLength^2 a bit too far, above 1, leaving no room for I_normalLength^2,
+                since  I_tangentialLength^2 + I_normalLength^2 = 1.0^2. we must check for this. k is just 1 - tangentialLength^2 so we reverse the check:
 
-                    scaling I_tangentialLength^2 by ratioOfIor^2 adjusts the tangential for refraction, but in extreme cases,
-                    ratioOfIor could have pushed I_tangentialLength^2 a bit too far, above 1, leaving no room for I_normalLength^2,
-                    since  I_tangentialLength^2 + I_normalLength^2 = 1.0^2. we must check for this. k is just 1 - tangentialLength^2 so we reverse the check:
+                if k >= 0, refraction is valid, continue.
+                else, TIR
 
-                    if k >= 0, refraction is valid, continue.
-                    else, TIR
+                TIR stands for total internal reflection. basically, the most a ray can refract is 90 degrees, where there is no I_normalLength.
+                this is ok, but going any further than 90 degrees (I_tangentialLength^2 > 1.0) and you treat it as a reflection.
+                TIR only happens when going from a dense medium (high ior) to a less dense medium (lower ior).
+                treat a TIR as a regular specular.
 
-                    TIR stands for total internal reflection. basically, the most a ray can refract is 90 degrees, where there is no I_normalLength.
-                    this is ok, but going any further than 90 degrees (I_tangentialLength^2 > 1.0) and you treat it as a reflection.
-                    TIR only happens when going from a dense medium (high ior) to a less dense medium (lower ior).
-                    treat a TIR as a regular specular.
+                */
 
-                    */
+                float k = 1.0f - sinISquared;
 
-                    float k = 1.0f - sinISquared;
+                if (k >= 0) { // valid refraction, room for both I_normal and I_tangential
+                    // these below are NOT LENGTHS, they are the actual tangential and normal direction vectors of rayDir
+                    float3 I_normal = normal * -cosI; // negative because it made it negative in cosI, and we have to reverse it to get the direction the ray points opposite to the normal (pointing towards it)
+                    float3 I_tangential = normalize(rayDir - I_normal); // subtract the normal component from the total to get the tangential
 
-                    if (k >= 0) { // valid refraction, room for both I_normal and I_tangential
-                        // these below are NOT LENGTHS, they are the actual tangential and normal direction vectors of rayDir
-                        float3 I_normal = normal * -cosI; // negative because it made it negative in cosI, and we have to reverse it to get the direction the ray points opposite to the normal (pointing towards it)
-                        float3 I_tangential = normalize(rayDir - I_normal); // subtract the normal component from the total to get the tangential
+                    float3 refractedNormal = normal * sqrtf(k) * -1;
+                    float3 refractedTangential = I_tangential * sqrtf(sinISquared);
 
-                        float3 refractedNormal = normal * sqrtf(k) * -1;
-                        float3 refractedTangential = I_tangential * sqrtf(sinISquared);
+                    rayDir = refractedNormal + refractedTangential;
+                    rayPos += (normal*-1) * epsilon;
 
-                        rayDir = refractedNormal + refractedTangential;
-                        rayPos += (normal*-1) * epsilon;
-
-                        if (inObject) { // leaving
-                            inObject = false;
-                            previousIOR = 1.0f;
-                        } else { // entering
-                            inObject = true;
-                            previousIOR = material.ior;
-                            insideMaterial = material;
-                        }
-
-                        throughput *= (1-F)/(1-P_spec);
-
-                    } else {
-                        throughput *= F; // color math for specular
-
-                        rayDir = normalize(rayDir - normal*2*dot(rayDir, normal));
-                        rayPos += normal * epsilon;
+                    if (inObject) { // leaving
+                        inObject = false;
+                        previousIOR = 1.0f;
+                    } else { // entering
+                        inObject = true;
+                        previousIOR = material.ior;
+                        insideMaterial = material;
                     }
 
+                    throughput *= (1-F)/(1-P_spec);
 
+                } else {
+                    throughput *= F; // color math for specular
+
+                    rayDir = normalize(rayDir - normal*2*dot(rayDir, normal));
+                    rayPos += normal * epsilon;
+                }
 
             } else { // diffuse
 
                 // diffuse
-                accumulated += localColor * throughput;
+                float3 contribution = localColor * throughput;
+                if (bounces > 0) { // the first hit's lighting is left exact - only bounced light is capped
+                    contribution = clampBrightness(contribution, indirectClamp);
+                }
+                accumulated += contribution;
                 throughput *= (1.0f - F) * albedo / (1.0f - P_spec); /* F/P_spec is the amount of specular light, (1-F)/(1-P_spec) is the amount of diffuse light.
                 Since we are in the diffuse branch, F will always be on the gray scale (r, g, and b will be equal) because that is the case for all dielectrics */
 

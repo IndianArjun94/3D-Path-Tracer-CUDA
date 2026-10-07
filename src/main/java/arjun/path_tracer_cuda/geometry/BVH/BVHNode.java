@@ -1,6 +1,7 @@
 package arjun.path_tracer_cuda.geometry.BVH;
 
 import arjun.path_tracer_cuda.GPUManager;
+import arjun.path_tracer_cuda.geometry.Vec3;
 
 import java.util.ArrayList;
 
@@ -12,33 +13,13 @@ public class BVHNode {
     public int splitAxis;
 
     public static final int MIN_PRIMS_IN_NODE = 4;
-    public static final int MAX_DEPTH = 64;
+    public static final int MAX_DEPTH = 256;
 
     public BVHNode() {
         bounds = AABB.empty();
     }
 
-    public static BVHNode build(int start, int end, int depth) {
-        BVHNode node = new BVHNode();
-        AABB centroidBounds = AABB.empty(); // bounds of the centroids of the primitives - we need this because we split the node using this
-
-        GPUManager instance = GPUManager.instance;
-
-        if (instance == null) return null;
-
-        for (int i = start; i < end; i++) {
-            int id = instance.primCount[i]; // we reference primIDs here because the raw I could be incorrect - shuffling and sorting of the indexes happen down below
-            node.bounds.grow(instance.primBounds[id]);
-            centroidBounds.grow(instance.primCentroids[id]);
-        }
-
-        node.firstPrimIndex = start;
-        node.primCount = end - start;
-
-        if (end - start <= MIN_PRIMS_IN_NODE || depth >= MAX_DEPTH) { // check if this should be a leaf
-            return node;
-        }
-
+    protected static int splitAndBuildChildren(BVHNode node, AABB centroidBounds, Vec3[] centroids, int[] primitiveIDs, int start, int end, int depth) {
         // find the axis with the largest extent - determines what axis we split on (should be the longest axis)
         float xAxisLength = (centroidBounds.max.x - centroidBounds.min.x);
         float yAxisLength = (centroidBounds.max.y - centroidBounds.min.y);
@@ -63,9 +44,9 @@ public class BVHNode {
         int leftSize = 0;
 
         for (int i = start; i < end; i++) {
-            int id = instance.primCount[i];
+            int id = primitiveIDs[i];
 
-            if (instance.primCentroids[id].getAxis(node.splitAxis) < split) {
+            if (centroids[id].getAxis(node.splitAxis) < split) {
                 orderedIndices.addFirst(id);
                 leftSize++;
             } else {
@@ -74,15 +55,12 @@ public class BVHNode {
         }
 
         for (int i = start; i < end; i++) {
-            instance.primCount[i] = orderedIndices.get(i - start);
+            primitiveIDs[i] = orderedIndices.get(i - start);
         }
 
         // recursion: build the left and right children
         int mid = start + leftSize;
         if (mid == start || mid == end) mid = (start + end) / 2;
-
-        node.left = build(start, mid, depth + 1);
-        node.right = build(mid, end, depth + 1);
 
         node.primCount = 0;
         /*
@@ -90,6 +68,35 @@ public class BVHNode {
            Other nodes (interior nodes, with children) don't have any primitives, just children.
            Since we made it down this far, we know that this node is an interior node, so we set primCount to 0.
         */
+
+        return mid;
+    }
+
+    public BVHNode build(int start, int end, int depth) {
+        BVHNode node = new BVHNode();
+        AABB centroidBounds = AABB.empty(); // bounds of the centroids of the primitives - we need this because we split the node using this
+
+        GPUManager instance = GPUManager.instance;
+
+        if (instance == null) return null;
+
+        for (int i = start; i < end; i++) {
+            int id = instance.primitiveIDs[i]; // we reference primIDs here because the raw I could be incorrect - shuffling and sorting of the indexes happen down below
+            node.bounds.grow(instance.primBounds[id]);
+            centroidBounds.grow(instance.primCentroids[id]);
+        }
+
+        node.firstPrimIndex = start;
+        node.primCount = end - start;
+
+        if (end - start <= MIN_PRIMS_IN_NODE || depth >= MAX_DEPTH) { // check if this should be a leaf
+            return node;
+        }
+
+        int mid = splitAndBuildChildren(node, centroidBounds, instance.primCentroids, instance.primitiveIDs, start, end, depth);
+
+        node.left = build(start, mid, depth + 1);
+        node.right = build(mid, end, depth + 1);
 
         return node;
 
@@ -106,22 +113,22 @@ public class BVHNode {
         int myIndex = nextFreeSlot;
         nextFreeSlot++;
 
-        GPUManager.instance.minBounds[myIndex*3] = node.bounds.min.x; // 6 floats
-        GPUManager.instance.minBounds[myIndex*3+1] = node.bounds.min.y;
-        GPUManager.instance.minBounds[myIndex*3+2] = node.bounds.min.z;
-        GPUManager.instance.maxBounds[myIndex*3] = node.bounds.max.x;
-        GPUManager.instance.maxBounds[myIndex*3+1] = node.bounds.max.y;
-        GPUManager.instance.maxBounds[myIndex*3+2] = node.bounds.max.z;
+        GPUManager.instance.primMinBounds[myIndex*3] = node.bounds.min.x; // 6 floats
+        GPUManager.instance.primMinBounds[myIndex*3+1] = node.bounds.min.y;
+        GPUManager.instance.primMinBounds[myIndex*3+2] = node.bounds.min.z;
+        GPUManager.instance.primMaxBounds[myIndex*3] = node.bounds.max.x;
+        GPUManager.instance.primMaxBounds[myIndex*3+1] = node.bounds.max.y;
+        GPUManager.instance.primMaxBounds[myIndex*3+2] = node.bounds.max.z;
 
         if (node.primCount == 0) { // interior node
             flatten(node.left);
             int rightIndex = flatten(node.right);
 
             GPUManager.instance.primCounts[myIndex] = 0; // 1 int
-            GPUManager.instance.idx[myIndex] = rightIndex; // right child
+            GPUManager.instance.primIdx[myIndex] = rightIndex; // right child
         } else {
             GPUManager.instance.primCounts[myIndex] = node.primCount; // 1 int
-            GPUManager.instance.idx[myIndex] = node.firstPrimIndex; // first primitive
+            GPUManager.instance.primIdx[myIndex] = node.firstPrimIndex; // first primitive
         }
 
         return myIndex;
