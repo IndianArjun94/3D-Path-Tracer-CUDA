@@ -7,6 +7,7 @@ struct Material {
     float transmission;
     float ior;
     float density;
+    float3 emission; // light given off: linear colour * intensity, (0, 0, 0) for surfaces that aren't lights
 };
 
 struct Sphere {

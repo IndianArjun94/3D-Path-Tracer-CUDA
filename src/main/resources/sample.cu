@@ -271,7 +271,7 @@ __device__ float lightNodeImportance(int i, float3 p, float3 n, const float* nod
     return power * fmaxf(cosBound, 0.0f) / fmaxf(d2, r * r);
 }
 
-__device__ float3 getLocalColor(float3 rayPos, float3 rayDir, Material material, float3 normal, Triangle* triangles, int numTriangles, Sphere* spheres, int numSpheres, PointLight* pointLights, int numPointLights, unsigned int& seed, float epsilon, float3 invDir, float* nodeMin, float* nodeMax, int* nodePrimCount, int* nodeIdx, int* primIDs, float* lightNodeMin, float* lightNodeMax, int* lightNodePrimCount, int* lightNodeIdx, int* lightIDs, float* lightNodePower, float tMin, float tMax) {
+__device__ float3 getLocalColor(float3 rayPos, float3 rayDir, Material material, float3 normal, Triangle* triangles, int numTriangles, Sphere* spheres, int numSpheres, PointLight* pointLights, int numPointLights, unsigned int& seed, float epsilon, float3 invDir, float* nodeMin, float* nodeMax, int* nodePrimCount, int* nodeIdx, int* primIDs, float* lightNodeMin, float* lightNodeMax, int* lightNodePrimCount, int* lightNodeIdx, int* lightIDs, float* lightNodePower, float* emissiveNodeMin, float* emissiveNodeMax, int* emissiveNodePrimCount, int* emissiveNodeIdx, int* emissiveIDs, float* emissiveNodePower, int numEmissives, float tMin, float tMax) {
     float3 totalLight = make_float3(0.0f, 0.0f, 0.0f);
 
     int node = 0;
@@ -441,6 +441,13 @@ __global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int 
                        int* lightNodeIdx,       // leaf: first position in lightIDs; interior: right child index
                        int* lightIDs,           // permuted point light ids
                        float* lightNodePower,   // 3 floats per light node: summed power of the lights under it
+                       float* emissiveNodeMin,     // 3 floats per emissive node
+                       float* emissiveNodeMax,     // 3 floats per emissive node
+                       int* emissiveNodePrimCount, // 0 = interior, >0 = leaf
+                       int* emissiveNodeIdx,       // leaf: first position in emissiveIDs; interior: right child index
+                       int* emissiveIDs,           // permuted unified ids of the emissive primitives, like primIDs (< numTriangles = triangle)
+                       float* emissiveNodePower,   // 3 floats per emissive node: summed power of the emissives under it
+                       int numEmissives,           // 0 = no emissives, and the emissive arrays above were never allocated
                        int frame_number) {
 
     int x = blockIdx.x * blockDim.x + threadIdx.x;
@@ -524,7 +531,7 @@ __global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int 
 
         // color math ------------------------------------------------
 
-        float3 localColor = getLocalColor(rayPos, rayDir, material, normal, triangles, numTriangles, spheres, numSpheres, pointLights, numPointLights, seed, epsilon, invDir, nodeMin, nodeMax, nodePrimCount, nodeIdx, primIDs, lightNodeMin, lightNodeMax, lightNodePrimCount, lightNodeIdx, lightIDs, lightNodePower, epsilon, best_t);
+        float3 localColor = getLocalColor(rayPos, rayDir, material, normal, triangles, numTriangles, spheres, numSpheres, pointLights, numPointLights, seed, epsilon, invDir, nodeMin, nodeMax, nodePrimCount, nodeIdx, primIDs, lightNodeMin, lightNodeMax, lightNodePrimCount, lightNodeIdx, lightIDs, lightNodePower, emissiveNodeMin, emissiveNodeMax, emissiveNodePrimCount, emissiveNodeIdx, emissiveIDs, emissiveNodePower, numEmissives, epsilon, best_t);
 
         float3 albedo = material.color;
 
@@ -730,7 +737,10 @@ __global__ void sample(uchar4* pbo, double4* accumulationBuffer, int width, int 
             } else { // diffuse
 
                 // diffuse
-                float3 contribution = localColor * throughput;
+                float3 contribution = localColor * throughput * (1.0f - F) / (1.0f - P_spec); /* (1-F)/(1-P_spec) for the same reason as the throughput below:
+                this branch only runs (1-P_spec) of the time, but should carry (1-F) of the light. without it, direct light comes out scaled by (1-P_spec)
+                instead of (1-F), which is off either way: a dark surface (albedo 0.2) comes out 13% too dark head on and ~45% too dark at a glancing angle,
+                while a bright one (albedo 0.8) is 1% too dark head on but over 2x too bright when the ray skims the surface */
                 if (bounces > 0) { // the first hit's lighting is left exact - only bounced light is capped
                     contribution = clampBrightness(contribution, indirectClamp);
                 }

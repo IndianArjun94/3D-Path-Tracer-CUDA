@@ -54,6 +54,13 @@ public class SampleKernel extends Kernel {
                 Pointer.to(sceneDataDevicePtrs[12]), // pLightIdx
                 Pointer.to(sceneDataDevicePtrs[13]), // pLightIDs
                 Pointer.to(sceneDataDevicePtrs[14]), // pLightPower
+                Pointer.to(sceneDataDevicePtrs[15]), // emissiveMinBounds
+                Pointer.to(sceneDataDevicePtrs[16]), // emissiveMaxBounds
+                Pointer.to(sceneDataDevicePtrs[17]), // emissiveCounts
+                Pointer.to(sceneDataDevicePtrs[18]), // emissiveIdx
+                Pointer.to(sceneDataDevicePtrs[19]), // emissiveIDs
+                Pointer.to(sceneDataDevicePtrs[20]), // emissivePower
+                Pointer.to(new int[]{sceneDataSizes[19]}), // numEmissives - the emissive arrays are never allocated when this is 0
                 Pointer.to(new int[]{frame})
         );
 

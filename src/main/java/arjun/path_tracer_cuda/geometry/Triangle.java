@@ -1,8 +1,8 @@
 package arjun.path_tracer_cuda.geometry;
 
-public class Triangle implements SceneObject { // 17 floats
+public class Triangle implements SceneObject { // 20 floats
     public Vec3 p1, p2, p3; // 9 floats
-    public Material material; // 8 floats
+    public Material material; // 11 floats
 
     public Triangle(Vec3 p1, Vec3 p2, Vec3 p3, Material material) {
         this.p1 = p1;
@@ -13,5 +13,9 @@ public class Triangle implements SceneObject { // 17 floats
 
     public int getType() {
         return 0;
+    }
+
+    public Material getMaterial() {
+        return material;
     }
 }

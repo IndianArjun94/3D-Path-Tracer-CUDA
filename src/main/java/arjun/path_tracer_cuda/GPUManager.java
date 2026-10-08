@@ -3,6 +3,7 @@ package arjun.path_tracer_cuda;
 import arjun.path_tracer_cuda.geometry.*;
 import arjun.path_tracer_cuda.geometry.BVH.AABB;
 import arjun.path_tracer_cuda.geometry.BVH.BVHNode;
+import arjun.path_tracer_cuda.geometry.BVH.EmissiveBVHNode;
 import arjun.path_tracer_cuda.geometry.BVH.PLightBVHNode;
 import arjun.path_tracer_cuda.kernel.Kernel;
 import arjun.path_tracer_cuda.kernel.KernelManager;
@@ -61,6 +62,7 @@ public class GPUManager {
 
     public int[] primitiveIDs; // the ids for each primitive (points to GPUManager objects arraylist), to be shuffled later
     public int[] pLightIDs; // the ids for each primitive (points to GPUManager objects arraylist), to be shuffled later
+    public int[] emissiveIDs; // the ids for each emissive primitive (points to GPUManager objects arraylist, like primitiveIDs), to be shuffled later
 
     public float[] primMinBounds;
     public float[] primMaxBounds;
@@ -72,6 +74,12 @@ public class GPUManager {
     public int[] pLightCounts; // always the prim counts
     public int[] pLightIdx; // for leafs: the first prim index. for interiors: index of right child
     public float[] pLightPower; // 3 floats per node: the summed power of the lights under it
+
+    public float[] emissiveMinBounds;
+    public float[] emissiveMaxBounds;
+    public int[] emissiveCounts; // always the prim counts
+    public int[] emissiveIdx; // for leafs: the first prim index. for interiors: index of right child
+    public float[] emissivePower; // 3 floats per node: the summed power of the emissives under it
     //  ---------------------------------------------
 
     public GPUManager(Window window, int sceneNumber) {
@@ -112,6 +120,11 @@ public class GPUManager {
             pLightIDs[i] = i;
         }
 
+        // only the primitives that give off light. they reuse primBounds and primCentroids, since they're in the same objects list
+        emissiveIDs = IntStream.range(0, GPUManager.instance.objects.size())
+                .filter(id -> GPUManager.instance.objects.get(id).getMaterial().isEmissive())
+                .toArray();
+
 
         BVHNode root = new BVHNode();
         root = root.build(0, primitiveIDs.length, 0);
@@ -139,6 +152,20 @@ public class GPUManager {
             PLightBVHNode lightRoot = (PLightBVHNode) new PLightBVHNode().build(0, pLightIDs.length, 0);
             int lightFlatten = PLightBVHNode.flatten(lightRoot);
             assert lightFlatten == 0;
+        }
+
+        // emissive bvh
+        int maxEmissiveNodes = Math.max(0, 2 * emissiveIDs.length - 1);
+        emissiveMinBounds = new float[maxEmissiveNodes*3];
+        emissiveMaxBounds = new float[maxEmissiveNodes*3];
+        emissiveCounts = new int[maxEmissiveNodes];
+        emissiveIdx = new int[maxEmissiveNodes];
+        emissivePower = new float[maxEmissiveNodes*3];
+
+        if (emissiveIDs.length > 0) {
+            EmissiveBVHNode emissiveRoot = (EmissiveBVHNode) new EmissiveBVHNode().build(0, emissiveIDs.length, 0);
+            int emissiveFlatten = EmissiveBVHNode.flatten(emissiveRoot);
+            assert emissiveFlatten == 0;
         }
 
         // send scene data + final inits
@@ -194,8 +221,8 @@ public class GPUManager {
 
     private void sendSceneData() {
 
-        float[] triangleData = new float[triangles.size() * 17];
-        float[] sphereData = new float[spheres.size() * 12];
+        float[] triangleData = new float[triangles.size() * 20];
+        float[] sphereData = new float[spheres.size() * 15];
         float[] pLightData = new float[pointLights.size() * 7];
 
         int i = 0;
@@ -223,7 +250,12 @@ public class GPUManager {
             triangleData[i + 15] = triangle.material.ior;
             triangleData[i + 16] = triangle.material.density;
 
-            i += 17;
+            Vec3 triangleEmission = triangle.material.linearEmission(); // already linear, intensity multiplied in
+            triangleData[i + 17] = triangleEmission.x;
+            triangleData[i + 18] = triangleEmission.y;
+            triangleData[i + 19] = triangleEmission.z;
+
+            i += 20;
         }
 
         i = 0;
@@ -245,7 +277,12 @@ public class GPUManager {
             sphereData[i + 10] = sphere.material.ior;
             sphereData[i + 11] = sphere.material.density;
 
-            i += 12;
+            Vec3 sphereEmission = sphere.material.linearEmission(); // already linear, intensity multiplied in
+            sphereData[i + 12] = sphereEmission.x;
+            sphereData[i + 13] = sphereEmission.y;
+            sphereData[i + 14] = sphereEmission.z;
+
+            i += 15;
         }
 
         i = 0;
@@ -270,7 +307,7 @@ public class GPUManager {
 
 
         // setup
-        int normalAllocs = 14;
+        int normalAllocs = 20;
 
         CUdeviceptr[] normalDevicePtrs = new CUdeviceptr[normalAllocs];
         CUdeviceptr[] otherDevicePtrs = new CUdeviceptr[1];
@@ -304,6 +341,12 @@ public class GPUManager {
         types[11] = 0;
         types[12] = 0;
         types[13] = 1;
+        types[14] = 1;
+        types[15] = 1;
+        types[16] = 0;
+        types[17] = 0;
+        types[18] = 0;
+        types[19] = 1;
 
         // order must match the kernel's parameter order
         floatData[0] = triangleData;
@@ -320,9 +363,16 @@ public class GPUManager {
         intData[11] = pLightIdx;
         intData[12] = pLightIDs;
         floatData[13] = pLightPower;
+        floatData[14] = emissiveMinBounds;
+        floatData[15] = emissiveMaxBounds;
+        intData[16] = emissiveCounts;
+        intData[17] = emissiveIdx;
+        intData[18] = emissiveIDs;
+        floatData[19] = emissivePower;
 
         int bvhNodes = BVHNode.nodeCount();
         int lightBvhNodes = PLightBVHNode.nodeCount();
+        int emissiveBvhNodes = EmissiveBVHNode.nodeCount();
         int[] normalCounts = new int[normalAllocs];
         normalCounts[0] = triangles.size();
         normalCounts[1] = spheres.size();
@@ -338,6 +388,12 @@ public class GPUManager {
         normalCounts[11] = lightBvhNodes; // pLightIdx
         normalCounts[12] = pLightIDs.length; // pLightIDs
         normalCounts[13] = lightBvhNodes; // pLightPower
+        normalCounts[14] = emissiveBvhNodes; // emissiveMinBounds
+        normalCounts[15] = emissiveBvhNodes; // emissiveMaxBounds
+        normalCounts[16] = emissiveBvhNodes; // emissiveCounts
+        normalCounts[17] = emissiveBvhNodes; // emissiveIdx
+        normalCounts[18] = emissiveIDs.length; // emissiveIDs
+        normalCounts[19] = emissiveBvhNodes; // emissivePower
 
         for (i = 0; i < normalAllocs; i++) {
             int byteSize = 0;
